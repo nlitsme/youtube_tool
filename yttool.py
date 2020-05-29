@@ -1,14 +1,8 @@
 """
 A tool for extracting useful information from youtube video's, like comments, or subtitles.
 
-note about youtube id's:
-    * id's consist of: A-Za-z0-9-_
-    * a video id has 11 characters.
-    * a playlist id has 24 or 34 characters.
-    * channel id has 24 characters.
+Author: Willem Hengeveld <itsme@xs4all.nl>
 
-
-TODO: get youtube client version by requesting youtube with "User-Agent: Mozilla/5.0 (Mac) Gecko/20100101 Firefox/76.0"
 """
 
 import urllib.request
@@ -24,6 +18,7 @@ from xml.parsers.expat import ParserCreate
 
 import http.client
 
+
 def cvdate(txt):
     """
     Convert a string with a date in ymd format to a date object.
@@ -35,11 +30,13 @@ def cvdate(txt):
     y, m, d = [int(_) for _ in ymd]
     return datetime.date(y, m, d)
 
+
 def cvseconds(txt):
     """
     Convert string containing a number of seconds to a timedelta object.
     """
     return datetime.timedelta(seconds=int(txt))
+
 
 def getitembymember(a, member):
     """
@@ -73,6 +70,9 @@ def getitem(d, *path):
 class Youtube:
     """
     Class which knows how to get information from youtune video's
+
+
+    TODO: get youtube client version by requesting youtube with "User-Agent: Mozilla/5.0 (Mac) Gecko/20100101 Firefox/76.0"
     """
     def __init__(self, args):
         self.args = args
@@ -81,7 +81,6 @@ class Youtube:
         if args.debug:
             handlers.append(urllib.request.HTTPSHandler(debuglevel=1))
         self.opener = urllib.request.build_opener(*handlers)
-
 
     def httpreq(self, url, data=None):
         """
@@ -134,7 +133,6 @@ class Youtube:
 
         return self.httpreq(url + "?" + urllib.parse.urlencode(query))
 
-
     def getpageinfo(self, yturl):
         """
         Returns the youtube configuration object.
@@ -175,8 +173,6 @@ class Youtube:
             print(playertext)
             print()
         return json.loads(playertext)
-
-
 
 
 class CommentReader:
@@ -347,7 +343,7 @@ class CommentReader:
 
 class DetailReader:
     """
-video details:
+ video details:
  playerResponse.videoDetails.{viewCount,lengthSeconds}
                             .shortDescription
  playerResponse.microformat.playerMicroformatRenderer.{viewCount,lengthSeconds,publishDate,uploadDate}
@@ -418,13 +414,14 @@ class SubtitleReader:
             tt = self.extracttext(ttxml)
 
             if self.args.srt:
+                print("###  %s ###" % name)
                 self.output_srt(tt)
             elif self.args.verbose:
-                print("==> %s <==" % name)
+                print("### %s ###" % name)
                 for t0, t1, txt in tt:
                     print("%s  %s" % (self.formattime(t0), txt))
             else:
-                print("==> %s <==" % name)
+                print("### %s ###" % name)
                 for t0, t1, txt in tt:
                     print(txt)
 
@@ -436,14 +433,14 @@ class SubtitleReader:
 
     @staticmethod
     def srttime(t):
-        return formattime(t).replace('.', ',')
+        return SubtitleReader.formattime(t).replace('.', ',')
 
     @staticmethod
     def output_srt(tt):
         n = 1
         for t0, t1, txt in tt:
             print(n)
-            print("%s --> %s" % (srttime(t0), srttime(t1)))
+            print("%s --> %s" % (SubtitleReader.srttime(t0), SubtitleReader.srttime(t1)))
             print(txt)
             print()
 
@@ -565,13 +562,17 @@ def parse_youtube_link(url):
     /v/<videoid>
     /embed/<videoid>
 
+    
+    id's consist of: A-Za-z0-9-_
+
     a videoid is 11 characters long.
-    a playlist id is either 24, or 34 characters long, and has the following format:
+    a playlist id is either 24 or 34 characters long, and has the following format:
         "PL<32chars>"  -- custom playlist
-        "VLPL<32chars>"
         "UC<22chars>"  -- user channel
         "PU<22chars>"  -- popular uploads playlist
         "UU<22chars>"  -- user playlist
+        "VLPL<32chars>"
+        "RDEM<22chars>" -- radio channel
     """
 
     m = re.match(r'^(?:https?://)?(?:www\.)?(?:(?:youtu\.be|youtube\.com)/)?(.*)', url)
@@ -621,6 +622,7 @@ def parse_youtube_link(url):
      
     raise Exception("unknown id")
 
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description='Extract Youtube comments')
@@ -657,13 +659,12 @@ def main():
             lst = PlaylistReader(args, yt, cfg)
             lst.output()
         elif args.info:
-            # todo: channel info
             lst = DetailReader(args, yt, cfg)
             lst.output()
         else:
             print("nothing to do")
 
-   
+
 if __name__ == '__main__':
     main()
 
