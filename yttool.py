@@ -3,8 +3,12 @@ A tool for extracting useful information from youtube video's, like comments, or
 
 note about youtube id's:
     * id's consist of: A-Za-z0-9-_
-    * a video id has 11 characters
-    * a playlist id has 24 characters
+    * a video id has 11 characters.
+    * a playlist id has 24 or 34 characters.
+    * channel id has 24 characters.
+
+
+TODO: get youtube client version by requesting youtube with "User-Agent: Mozilla/5.0 (Mac) Gecko/20100101 Firefox/76.0"
 """
 
 import urllib.request
@@ -14,12 +18,33 @@ import re
 import json
 import sys
 import html
+import datetime
 
 from xml.parsers.expat import ParserCreate
 
 import http.client
 
+def cvdate(txt):
+    """
+    Convert a string with a date in ymd format to a date object.
+    """
+    ymd = txt.split("-")
+    if len(ymd)!=3:
+        print("WARNING: invalid date format: %s" % txt)
+        return
+    y, m, d = [int(_) for _ in ymd]
+    return datetime.date(y, m, d)
+
+def cvseconds(txt):
+    """
+    Convert string containing a number of seconds to a timedelta object.
+    """
+    return datetime.timedelta(seconds=int(txt))
+
 def getitembymember(a, member):
+    """
+    Get the first item from 'a' which has an element named 'member'
+    """
     for item in a:
         if member in item:
             return item
@@ -60,7 +85,7 @@ class Youtube:
 
     def httpreq(self, url, data=None):
         """
-        does GET or POST request to youtube.
+        Does GET or POST request to youtube.
         """
         hdrs = {
             "x-youtube-client-name": "1",
@@ -92,6 +117,8 @@ class Youtube:
 
         postdata = urllib.parse.urlencode({ "session_token":xsrf })
         return self.httpreq(url + "?" + urllib.parse.urlencode(query), postdata.encode('ascii') )
+        
+        # todo: action_get_comment_replies=1
 
     def browse(self, contclick):
         """
@@ -112,14 +139,12 @@ class Youtube:
         """
         Returns the youtube configuration object.
         """
-        ytcfgtext = self.httpreq(yturl + "&pbj=1")
+        ytcfgtext = self.httpreq(yturl + ("&" if yturl.find('?')>=0 else "?") + "pbj=1")
         if self.args.debug:
             print("============ youtube config")
             print(ytcfgtext.decode('utf-8'))
             print()
 
-        # playerResponse, microformat
-        #   -> viewCount, publishDate, uploadDate
         return json.loads(ytcfgtext)
 
     def getconfigfromhtml(self, ythtml):
@@ -163,6 +188,11 @@ class CommentReader:
         self.yt = yt
         self.contclick, self.xsrf = self.getcommentinfo(cfg)
 
+    def printtextrun(self, runs):
+        for r in runs:
+            print(r.get('text'), end="")
+        print()
+
     def recursecomments(self, cc=None, level=0):
         if not cc:
             cc = self.contclick
@@ -178,7 +208,8 @@ class CommentReader:
             cmtlist, cc = self.extractcomments(js) 
 
             for author, runs, subcc in cmtlist:
-                print("---" * (level+1) + ">", author, runs)
+                print("---" * (level+1) + ">", author)
+                self.printtextrun(runs)
                 if subcc:
                     self.recursecomments(subcc, level+1)
 
@@ -297,6 +328,9 @@ class CommentReader:
         }
         """
         p = getitem(js, "response", "continuationContents")
+        if not p:
+            print("non contents found in continuation")
+            return [], None
         if "itemSectionContinuation" in p:
             p = p["itemSectionContinuation"]
         elif "commentRepliesContinuation" in p:
@@ -309,6 +343,51 @@ class CommentReader:
         # header.commentsHeaderRenderer -> commentsCount  at same level as 'contents'
 
         return cmtlist, self.getcontinuation(p)
+
+
+class DetailReader:
+    """
+video details:
+ playerResponse.videoDetails.{viewCount,lengthSeconds}
+                            .shortDescription
+ playerResponse.microformat.playerMicroformatRenderer.{viewCount,lengthSeconds,publishDate,uploadDate}
+                                                     .description.simpleText
+ twoColumnWatchNextResults.results.results.contents.[].videoSecondaryInfoRenderer.description.runs.[*].text
+ twoColumnWatchNextResults.results.results.contents.[].videoPrimaryInfoRenderer.sentimentBar.sentimentBarRenderer.tooltip
+    """
+    def __init__(self, args, yt, cfg):
+        self.args = args
+        self.yt = yt
+        self.cfg = cfg
+
+    def output(self):
+        vd = getitem(self.cfg, ("playerResponse",), "playerResponse", "videoDetails")
+        mf = getitem(self.cfg, ("playerResponse",), "playerResponse", "microformat", "playerMicroformatRenderer")
+        twocol = getitem(self.cfg, ("response",), "response", "contents", "twoColumnWatchNextResults", "results", "results", "contents")
+        sentiment = getitem(twocol, ("videoPrimaryInfoRenderer",), "videoPrimaryInfoRenderer", "sentimentBar", "sentimentBarRenderer", "tooltip")
+
+        if not mf:
+            print("microformat not found")
+            return
+
+        vc = int(mf.get("viewCount"))
+        ls = cvseconds(mf.get("lengthSeconds"))
+        pd = cvdate(mf.get("publishDate"))
+        ud = cvdate(mf.get("uploadDate"))
+        desc = getitem(mf, "description", "simpleText")
+
+        vid = vd.get("videoId")
+
+        title = getitem(mf, "title", "simpleText")
+        owner = getitem(mf, "ownerChannelName")
+
+        print("%s - %s" % (vid, title))
+        print("By: %s" % (owner))
+        print()
+        print("viewcount: %d, length: %s, sentiment: %s, published: %s%s" % (vc, ls, sentiment, pd, "" if pd==ud else ", uploaded at: %s" % ud))
+        print()
+        print("%s" % desc)
+        print()
 
 
 class SubtitleReader:
@@ -434,7 +513,6 @@ class PlaylistReader:
                 title = getitem(entry, "playlistVideoRenderer", "title", "simpleText")
                 print("%s - %s" % (vid, title))
             cont = self.getcontinuation(playlist)
-            print("cont=", cont)
             while cont:
                 browsejson = self.yt.browse(cont)
                 if self.args.debug:
@@ -470,7 +548,78 @@ class PlaylistReader:
         return p["continuation"], p["clickTrackingParams"]
 
 
+def parse_youtube_link(url):
+    """
+    Recognize different types of youtube urls:
 
+    http://,   https://
+
+    youtu.be/<videoid>[?list=<listid>]
+
+    (?:www.)?youtube.com...
+
+    /channel/<channelid>
+    /playlist?list=<listid>
+    /watch?v=<videoid> [&t=pos]
+    /watch/<videoid>
+    /v/<videoid>
+    /embed/<videoid>
+
+    a videoid is 11 characters long.
+    a playlist id is either 24, or 34 characters long, and has the following format:
+        "PL<32chars>"  -- custom playlist
+        "VLPL<32chars>"
+        "UC<22chars>"  -- user channel
+        "PU<22chars>"  -- popular uploads playlist
+        "UU<22chars>"  -- user playlist
+    """
+
+    m = re.match(r'^(?:https?://)?(?:www\.)?(?:(?:youtu\.be|youtube\.com)/)?(.*)', url)
+    if not m:
+        raise Exception("youtube link not matched")
+
+    path = m.group(1)
+
+    if m := re.match(r'^(\w+)/([A-Za-z0-9_-]+)(.*)', path):
+        idtype = m.group(1)
+        if idtype in ('v', 'embed', 'watch'):
+            idtype = 'video'
+        elif idtype in ('channel'):
+            idtype = 'channel'
+        elif idtype in ('playlist'):
+            idtype = 'playlist'
+        else:
+            raise Exception("unknown id type")
+
+        idvalue = m.group(2)
+        idargs = m.group(3)
+
+        return idtype, idvalue
+
+    if m := re.match(r'^(v|embed|watch|channel|playlist)(?:\?(.*))?$', path):
+        idtype = m.group(1)
+        if idtype in ('v', 'embed', 'watch'):
+            idtype = 'video'
+        elif idtype in ('channel'):
+            idtype = 'channel'
+        elif idtype in ('playlist'):
+            idtype = 'playlist'
+
+        idargs = urllib.parse.parse_qs(m.group(2))
+        if idvalue := idargs.get('v'):
+            return 'video', idvalue[0]
+        if idvalue := idargs.get('list'):
+            return 'playlist', idvalue[0]
+
+        return idtype, idvalue
+
+    if m := re.match(r'^[A-Za-z0-9_-]+$', path):
+        if len(path)==11:
+            return 'video', path
+        else:
+            return 'playlist', path
+     
+    raise Exception("unknown id")
 
 def main():
     import argparse
@@ -480,25 +629,39 @@ def main():
     parser.add_argument('--comments', '-c', action='store_true', help='Print video comments')
     parser.add_argument('--subtitles', '-t', action='store_true', help='Print video comments')
     parser.add_argument('--playlist', '-l', action='store_true', help='Print playlist items')
+    parser.add_argument('--info', '-i', action='store_true', help='Print video info')
     parser.add_argument('--srt', action='store_true', help='Output subtitles in .srt format.')
-    parser.add_argument('yturl', type=str)
+    parser.add_argument('ytids', nargs='+', type=str)
     args = parser.parse_args()
 
-    yt = Youtube(args)
-    cfg = yt.getpageinfo(args.yturl)
+    for url in args.ytids:
+        print("==>", url, "<==")
+        idtype, idvalue = parse_youtube_link(url)
+        if idtype == 'video':
+            url = "https://www.youtube.com/watch?v=%s" % idvalue
+        elif idtype == 'playlist':
+            url = "https://www.youtube.com/playlist?list=%s" % idvalue
+        elif idtype == 'channel':
+            url = "https://www.youtube.com/channel/%s" % idvalue
 
-    if args.comments:
-        cmt = CommentReader(args, yt, cfg)
-        cmt.recursecomments()
-    elif args.subtitles:
-        txt = SubtitleReader(args, yt, cfg)
-        txt.output()
-    elif args.playlist:
-        lst = PlaylistReader(args, yt, cfg)
-        lst.output()
-        pass
-    else:
-        print("nothing to do")
+        yt = Youtube(args)
+        cfg = yt.getpageinfo(url)
+
+        if args.comments:
+            cmt = CommentReader(args, yt, cfg)
+            cmt.recursecomments()
+        elif args.subtitles:
+            txt = SubtitleReader(args, yt, cfg)
+            txt.output()
+        elif args.playlist:
+            lst = PlaylistReader(args, yt, cfg)
+            lst.output()
+        elif args.info:
+            # todo: channel info
+            lst = DetailReader(args, yt, cfg)
+            lst.output()
+        else:
+            print("nothing to do")
 
    
 if __name__ == '__main__':
