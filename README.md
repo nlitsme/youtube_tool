@@ -5,7 +5,7 @@ A tool for extracting info from youtube, like video comments, subtitles, or play
 
 ## list all subtitles attached to a video.
 
-List the subtitles, this will output all available languages.
+List the subtitles, this will output the subtitles in all available languages.
 
     yttool --subtitles https://www.youtube.com/watch?v=bJOuzqu3MUQ
 
