@@ -5,7 +5,7 @@ A tool for extracting info from youtube, like video comments, subtitles, or play
 
 ## list all subtitles attached to a video.
 
-List the subtitles, this will output the subtitles in all available languages.
+This will output the subtitles in all available languages.
 
     yttool --subtitles https://www.youtube.com/watch?v=bJOuzqu3MUQ
 
@@ -18,6 +18,15 @@ You can also extract the subtitles in a format suitable for
 creating `.srt` subtitle files:
 
     yttool --srt --subtitles https://www.youtube.com/watch?v=bJOuzqu3MUQ
+
+
+Or you can filter by language, for example only output the english subtitles:
+
+    yttool --language en --subtitles https://www.youtube.com/watch?v=0xY06PT5JDE
+
+Or only output the automatically generated subtitles:
+
+    yttool --language asr --subtitles https://www.youtube.com/watch?v=0xY06PT5JDE
 
 
 ## comments

@@ -13,6 +13,7 @@ import json
 import sys
 import html
 import datetime
+from collections import defaultdict
 
 from xml.parsers.expat import ParserCreate
 
@@ -70,7 +71,6 @@ def getitem(d, *path):
 class Youtube:
     """
     Class which knows how to get information from youtune video's
-
 
     TODO: get youtube client version by requesting youtube with "User-Agent: Mozilla/5.0 (Mac) Gecko/20100101 Firefox/76.0"
     """
@@ -208,7 +208,6 @@ class CommentReader:
                 self.printtextrun(runs)
                 if subcc:
                     self.recursecomments(subcc, level+1)
-
 
     def getcontinuation(self, p):
         p = getitem(p, "continuations", 0, "nextContinuationData")
@@ -395,6 +394,17 @@ class SubtitleReader:
         self.yt = yt
         self.cfg = cfg
 
+    def languagematches(self, language, ct):
+        """
+        Match a captionTrack record to the language filter.
+        """
+        if language == 'asr' and ct.get('kind') == 'asr':
+            return True
+        if ct["name"]["simpleText"] == language:
+            return True
+        if ct["languageCode"] == language:
+            return True
+
     def output(self):
         js = getitem(self.cfg, ("playerResponse",), "playerResponse")
         p = getitem(js, "captions", "playerCaptionsTracklistRenderer", "captionTracks")
@@ -404,26 +414,53 @@ class SubtitleReader:
             return
 
         captiontracks = p
-        for ct in captiontracks:
-            name = ct["name"]["simpleText"]
-            ttxml = self.yt.httpreq(ct["baseUrl"])
-            if self.args.debug:
-                print("========== timedtext xml")
-                print(ttxml.decode('utf-8'))
-                print()
-            tt = self.extracttext(ttxml)
 
-            if self.args.srt:
-                print("###  %s ###" % name)
-                self.output_srt(tt)
-            elif self.args.verbose:
-                print("### %s ###" % name)
-                for t0, t1, txt in tt:
-                    print("%s  %s" % (self.formattime(t0), txt))
-            else:
-                print("### %s ###" % name)
-                for t0, t1, txt in tt:
-                    print(txt)
+        # filter subtitles based on language
+        if self.args.language:
+            captiontracks = self.filtertracks(self.args.language, captiontracks)
+
+        for ct in captiontracks:
+            if len(captiontracks) > 1:
+                print("###  %s ###" % ct["name"]["simpleText"])
+
+            self.outputsubtitles(ct["baseUrl"])
+
+            if len(captiontracks) > 1:
+                print()
+
+    def filtertracks(self, language, captiontracks):
+        matchedtracks = defaultdict(list)
+        for ct in captiontracks:
+            if not self.languagematches(language, ct):
+                continue
+
+            matchedtracks[ct["languageCode"]].append(ct)
+
+        filteredlist = []
+        for lang, tracks in matchedtracks.items():
+            if len(tracks) > 1:
+                # prefer non automated translation
+                tracks = filter(lambda ct:ct.get("kind") != "asr", tracks)
+            filteredlist.extend(tracks)
+
+        return filteredlist
+
+    def outputsubtitles(self, cturl):
+        ttxml = self.yt.httpreq(cturl)
+        if self.args.debug:
+            print("========== timedtext xml")
+            print(ttxml.decode('utf-8'))
+            print()
+        tt = self.extracttext(ttxml)
+
+        if self.args.srt:
+            self.output_srt(tt)
+        elif self.args.verbose:
+            for t0, t1, txt in tt:
+                print("%s  %s" % (self.formattime(t0), txt))
+        else:
+            for t0, t1, txt in tt:
+                print(txt)
 
     @staticmethod
     def formattime(t):
@@ -517,7 +554,6 @@ class PlaylistReader:
                     print(browsejson.decode('utf-8'))
                     print()
 
-
                 js = json.loads(browsejson)
 
                 playlist = getitem(js, ("response",), "response", "continuationContents", "gridContinuation")
@@ -534,7 +570,6 @@ class PlaylistReader:
                         print("%s - %s" % (vid, title))
 
                 cont = self.getcontinuation(playlist)
-
 
             return
 
@@ -630,6 +665,7 @@ def main():
     parser.add_argument('--verbose', '-v', action='store_true', help='prefix each line with the timestamp')
     parser.add_argument('--comments', '-c', action='store_true', help='Print video comments')
     parser.add_argument('--subtitles', '-t', action='store_true', help='Print video comments')
+    parser.add_argument('--language', type=str, help='Output only subtitles in the specified language')
     parser.add_argument('--playlist', '-l', action='store_true', help='Print playlist items')
     parser.add_argument('--info', '-i', action='store_true', help='Print video info')
     parser.add_argument('--srt', action='store_true', help='Output subtitles in .srt format.')
@@ -637,7 +673,8 @@ def main():
     args = parser.parse_args()
 
     for url in args.ytids:
-        print("==>", url, "<==")
+        if len(args.ytids) > 1:
+            print("==>", url, "<==")
         idtype, idvalue = parse_youtube_link(url)
         if idtype == 'video':
             url = "https://www.youtube.com/watch?v=%s" % idvalue
