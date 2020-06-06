@@ -174,6 +174,23 @@ class Youtube:
             print()
         return json.loads(playertext)
 
+    def extractsearchconfig(self, html):
+        if self.args.debug:
+            print("============ youtube page")
+            print(html.decode('utf-8'))
+            print()
+        m = re.search(br'window["ytInitialData"] = (.*);', html)
+        if not m:
+            print("could not find config")
+            return
+        cfgtext = m.group(1)
+        if self.args.debug:
+            print("========== config json")
+            print(cfgtext.decode('utf-8'))
+            print()
+
+        return json.loads(cfgtext)
+
 
 class CommentReader:
     """
@@ -219,23 +236,6 @@ class CommentReader:
         """
         Find the base parameters for querying the video's comments.
 
-        Note: the config structure is like this:
-
-        [ {
-            "response": { "contents": { "twoColumnWatchNextResults": { "results": { "results": { "contents": [
-                ...
-                {
-                    "itemSectionRenderer": { "continuations": [
-                        {
-                            "nextContinuationData": {
-                                "continuation": "EiYSC00xQjNnQVRTMEdFwAEAyAEA4AECogINKP___________wFAABgG",
-                                "clickTrackingParams": "CMwBEMm3AiITCKKxgqzH_ugCFUFO4Aodp_gHYQ==",
-                            }
-                        }
-                    ] }
-                }
-            ] } } } } }
-        } ]
         """
         item = getitem(cfg, ("response",), "response", "contents", "twoColumnWatchNextResults", "results", "results", "contents")
         cont = self.getcontinuation(getitem(item, ("itemSectionRenderer",), "itemSectionRenderer")) 
@@ -246,38 +246,6 @@ class CommentReader:
     def getcomment(self, p):
         """
         Return info for a single comment.
-
-        {
-            "commentThreadRenderer": {
-                "comment": { "commentRenderer": {
-                    "authorText": {
-                        "simpleText": "Kylie Lees"
-                    },
-                    "contentText": {
-                        "runs": [ { "text": "..." } ]
-                    }
-                } }
-                "replies": {
-                    "commentRepliesRenderer": {
-                        "continuations": [
-                            {
-                                "nextContinuationData": {
-                                    "continuation": "EiYSC00xQjNnQVRTMEdFwAEAyAEA4AECogINKP___________wFAABgGMk0aSxIaVWd3LWxrZnhHR0dhRWN2MGNRRjRBYUFCQWciAggAKhhVQzNLRW9Nek56OGVZbndCQzM0UmFLQ1EyC00xQjNnQVRTMEdFQAFICg%3D%3D",
-                                    "clickTrackingParams": "CPQBEMm3AiITCPO55r7H_ugCFYz2VQodMOYDtg==",
-                                    "label": {
-                                        "runs": [
-                                            {
-                                                "text": "Show more replies"
-                                            }
-                                        ]
-                                    }
-                                }
-                            }
-                        ],
-                    }
-                }
-            }
-        }
         """
         if "commentThreadRenderer" in p:
             p = p["commentThreadRenderer"]
@@ -304,23 +272,6 @@ class CommentReader:
     def extractcomments(self, js):
         """
         Extract a list of comments from comment dictionary
-
-        {
-            "response": { "continuationContents": { "itemSectionContinuation": {
-                "contents": [ ... ],
-                "continuations": [ {
-                    "nextContinuationData": {
-                        "continuation": "EiYSC00xQjNnQVRTMEdFwAEAyAEA4AECogINKP___________wFAABgGMpEDCvsCQURTSl9pM2ZXc3pUaUZTaXBuYWRHRGlOSnQtdWp0M0JaRElfSmxHb3JJc2ZFdTFBUVo5dFF2aGpZTExYRElkMUs3YUV2RWJpYnY0MlJwU1doN1FIWmp2VkhralRCbWFUQ19LRkhFWnB5aVdEOW0wdTlvQkRUV1Q0RjNYRklkaE5PeGFRd09zRDE1S19vcVdFVlVhQ3dfTWh3SzN3dlN6Y2xVXzk0R3hSbDhuVHRfQUp5VGpVaVR6OWltQ2ozTVpPMDgzNlNsT3VBUVFyUnduU0xwZ1hZUGtWZkJWcXhiVXdEYVNZSWM3ZWxjSG5SQXNrVUxONFh0ZkNnUXRBWHBsQ2FFLUwxM1plZ2NUQlp4dW9SMktuWkgybHdtYk9LWHNVSDM0Y2oyWjRwcVo4Y3JGcnVtVThwekJPUXpwQVk4R2hsQmduVHNraElKYmFGQktwa2o0U1FVLURCTVZSTWdoWk1qQWlVakt1Smw1MExSRklqOF9tQ2djRm5fWSIPIgtNMUIzZ0FUUzBHRTAAKBQ%3D",
-                        "clickTrackingParams": "CAkQybcCIhMI87nmvsf-6AIVjPZVCh0w5gO2"
-                    }
-                } ]
-                "header" : {
-                    "commentsHeaderRenderer": {
-                        "commentsCount": { "simpleText": "267" },
-                    }
-                }
-            } } }
-        }
         """
         p = getitem(js, "response", "continuationContents")
         if not p:
@@ -340,15 +291,49 @@ class CommentReader:
         return cmtlist, self.getcontinuation(p)
 
 
+class SearchReader:
+    def __init__(self, args, yt, cfg):
+        self.args = args
+        self.yt = yt
+        self.cfg = cfg
+
+    def extractruns(self, runs):
+        text = []
+        for r in runs:
+            text.append(r.get('text'))
+        return "".join(text)
+
+
+    def output(self):
+        cfg = getitem(self.cfg, ("xsrf_token",), "response")
+        ct = getitem(cfg, "contents", "twoColumnSearchResultsRenderer", "primaryContents", "sectionListRenderer", "contents")
+        resultlist = getitem(ct, ("itemSectionRenderer",), "itemSectionRenderer", "contents")
+        for item in resultlist:
+            if video := item.get("videoRenderer"):
+                vid = getitem(video, "videoId")
+                pub = getitem(video, "publishedTimeText", "simpleText")
+                title = getitem(video, "title", "runs")
+                # title -> runs
+                # descriptionSnippet -> runs
+                # publishedTimeText -> simpleText
+                # lengthText -> simpleText
+                # viewCountText -> simpleText
+                # ownerText -> runs
+                print("%s - %s" % (vid, self.extractruns(title)))
+            elif chan := item.get("channelRenderer"):
+                cid = getitem(chan, "channelId")
+                title = getitem(chan, "title", "simpleText")
+                # "videoCountText" -> runs
+                # subscriberCountText -> simpleText
+                # descriptionSnippet -> runs
+                print("%s - %s" % (cid, title))
+
+        # TODO: support continuation
+        #    -> /youtubei/v1/search?key=<innertube_api_key>
+
 class DetailReader:
     """
- video details:
- playerResponse.videoDetails.{viewCount,lengthSeconds}
-                            .shortDescription
- playerResponse.microformat.playerMicroformatRenderer.{viewCount,lengthSeconds,publishDate,uploadDate}
-                                                     .description.simpleText
- twoColumnWatchNextResults.results.results.contents.[].videoSecondaryInfoRenderer.description.runs.[*].text
- twoColumnWatchNextResults.results.results.contents.[].videoPrimaryInfoRenderer.sentimentBar.sentimentBarRenderer.tooltip
+    Extract some details for a video from the config.
     """
     def __init__(self, args, yt, cfg):
         self.args = args
@@ -538,9 +523,14 @@ class PlaylistReader:
             for entry in getitem(playlist, "playlist", "contents"):
                 vid = getitem(entry, "playlistPanelVideoRenderer", "videoId")
                 title = getitem(entry, "playlistPanelVideoRenderer", "title", "simpleText")
-                print("%s - %s" % (vid, title))
+                length = getitem(entry, "playlistPanelVideoRenderer", "lengthText", "simpleText")
+                if args.verbose:
+                    print("%s - %s  %s" % (vid, length, title))
+                else:
+                    print("%s - %s" % (vid, title))
             return
-        playlist = getitem(self.cfg, ("response",), "response", "contents", "twoColumnBrowseResultsRenderer", "tabs", 0, "tabRenderer", "content", "sectionListRenderer", "contents", 0, "itemSectionRenderer", "contents", 0, "playlistVideoListRenderer")
+        tabs = getitem(self.cfg, ("response",), "response", "contents", "twoColumnBrowseResultsRenderer", "tabs", 0, "tabRenderer", "content")
+        playlist = getitem(tabs, "sectionListRenderer", "contents", 0, "itemSectionRenderer", "contents", 0, "playlistVideoListRenderer")
         if playlist:
             for entry in playlist["contents"]:
                 vid = getitem(entry, "playlistVideoRenderer", "videoId")
@@ -592,22 +582,13 @@ def parse_youtube_link(url):
 
     /channel/<channelid>
     /playlist?list=<listid>
-    /watch?v=<videoid> [&t=pos]
+    /watch?v=<videoid> [&t=pos] [&list=<listid>]
     /watch/<videoid>
     /v/<videoid>
     /embed/<videoid>
-
-    
-    id's consist of: A-Za-z0-9-_
-
-    a videoid is 11 characters long.
-    a playlist id is either 24 or 34 characters long, and has the following format:
-        "PL<32chars>"  -- custom playlist
-        "UC<22chars>"  -- user channel
-        "PU<22chars>"  -- popular uploads playlist
-        "UU<22chars>"  -- user playlist
-        "VLPL<32chars>"
-        "RDEM<22chars>" -- radio channel
+    /user/<username>
+    /watch_videos?video_ids=<videoid>,<videoid>,...
+    /results?search_query=...
     """
 
     m = re.match(r'^(?:https?://)?(?:www\.)?(?:(?:youtu\.be|youtube\.com)/)?(.*)', url)
@@ -616,7 +597,9 @@ def parse_youtube_link(url):
 
     path = m.group(1)
 
-    if m := re.match(r'^(\w+)/([A-Za-z0-9_-]+)(.*)', path):
+    if m := re.match(r'^user/([^/?]+)', path):
+        yield 'username', m.group(1)
+    elif m := re.match(r'^(\w+)/([A-Za-z0-9_-]+)(.*)', path):
         idtype = m.group(1)
         if idtype in ('v', 'embed', 'watch'):
             idtype = 'video'
@@ -628,11 +611,19 @@ def parse_youtube_link(url):
             raise Exception("unknown id type")
 
         idvalue = m.group(2)
-        idargs = m.group(3)
+        yield idtype, idvalue
+        if idtype == 'channel':
+            yield 'playlist', 'UU' + idvalue[2:]
 
-        return idtype, idvalue
+        idargs = urllib.parse.parse_qs(m.group(3))
+        if idvalue := idargs.get('v'):
+            if idvalue[0]:
+                yield 'video', idvalue[0]
+        if idvalue := idargs.get('list'):
+            if idvalue[0]:
+                yield 'playlist', idvalue[0]
 
-    if m := re.match(r'^(v|embed|watch|channel|playlist)(?:\?(.*))?$', path):
+    elif m := re.match(r'^(v|embed|watch|channel|playlist)(?:\?(.*))?$', path):
         idtype = m.group(1)
         if idtype in ('v', 'embed', 'watch'):
             idtype = 'video'
@@ -643,20 +634,29 @@ def parse_youtube_link(url):
 
         idargs = urllib.parse.parse_qs(m.group(2))
         if idvalue := idargs.get('v'):
-            return 'video', idvalue[0]
+            if idvalue[0]:
+                yield 'video', idvalue[0]
         if idvalue := idargs.get('list'):
-            return 'playlist', idvalue[0]
+            if idvalue[0]:
+                yield 'playlist', idvalue[0]
 
-        return idtype, idvalue
+    elif m := re.match(r'^results\?(.*)$', path):
+        idargs = urllib.parse.parse_qs(m.group(1))
+        if idvalue := idargs.get('search_query'):
+            if idvalue[0]:
+                yield 'search', idvalue[0]
 
-    if m := re.match(r'^[A-Za-z0-9_-]+$', path):
+    elif m := re.match(r'^[A-Za-z0-9_-]+$', path):
         if len(path)==11:
             return 'video', path
         else:
             return 'playlist', path
      
-    raise Exception("unknown id")
+    else:
+        raise Exception("unknown id")
 
+def channelurl_from_userpage(cfg):
+    return getitem(cfg, ("playerResponse",), "response", "metadata", "channelMetadataRenderer", "channelUrl")
 
 def main():
     import argparse
@@ -669,37 +669,59 @@ def main():
     parser.add_argument('--playlist', '-l', action='store_true', help='Print playlist items')
     parser.add_argument('--info', '-i', action='store_true', help='Print video info')
     parser.add_argument('--srt', action='store_true', help='Output subtitles in .srt format.')
+    parser.add_argument('--query', '-q', action='store_true', help='List videos matching the specified query')
     parser.add_argument('ytids', nargs='+', type=str)
     args = parser.parse_args()
+
+    yt = Youtube(args)
+
+
 
     for url in args.ytids:
         if len(args.ytids) > 1:
             print("==>", url, "<==")
-        idtype, idvalue = parse_youtube_link(url)
-        if idtype == 'video':
-            url = "https://www.youtube.com/watch?v=%s" % idvalue
-        elif idtype == 'playlist':
-            url = "https://www.youtube.com/playlist?list=%s" % idvalue
-        elif idtype == 'channel':
-            url = "https://www.youtube.com/channel/%s" % idvalue
+        if args.query:
+            # note: the 'url' variable holds the query.
+            # convert it to a query url so the parse link function can decode it.
+            url = "https://www.youtube.com/results?" + urllib.parse.urlencode({"search_query": url})
 
-        yt = Youtube(args)
-        cfg = yt.getpageinfo(url)
+        # analyze url for id's, like videoid, channelid, playlistid or search query.
+        for idtype, idvalue in parse_youtube_link(url):
+            # reformat the url in a way that i am sure returns the right json data.
 
-        if args.comments:
-            cmt = CommentReader(args, yt, cfg)
-            cmt.recursecomments()
-        elif args.subtitles:
-            txt = SubtitleReader(args, yt, cfg)
-            txt.output()
-        elif args.playlist:
-            lst = PlaylistReader(args, yt, cfg)
-            lst.output()
-        elif args.info:
-            lst = DetailReader(args, yt, cfg)
-            lst.output()
-        else:
-            print("nothing to do")
+            if idtype == 'video':
+                url = "https://www.youtube.com/watch?v=%s" % idvalue
+            elif idtype == 'playlist':
+                url = "https://www.youtube.com/playlist?list=%s" % idvalue
+            elif idtype == 'channel':
+                url = "https://www.youtube.com/channel/%s" % idvalue
+            elif idtype == 'username':
+                url = "https://www.youtube.com/user/%s" % idvalue
+            elif idtype == 'search':
+                url = "https://www.youtube.com/results?" + urllib.parse.urlencode({"search_query": idvalue})
+
+            cfg = yt.getpageinfo(url)
+
+            if idtype=='username':
+                url = channelurl_from_userpage(cfg)
+                args.ytids.append(url)
+                # note: the new url is processed in next loop iteration.
+
+            if args.comments and idtype=='video':
+                cmt = CommentReader(args, yt, cfg)
+                cmt.recursecomments()
+            if args.subtitles and idtype=='video':
+                txt = SubtitleReader(args, yt, cfg)
+                txt.output()
+            if args.playlist and idtype=='playlist':
+                lst = PlaylistReader(args, yt, cfg)
+                lst.output()
+            if (args.playlist or args.query) and idtype == 'search':
+                q = SearchReader(args, yt, cfg)
+                q.output()
+            if args.info and idtype=='video':
+                lst = DetailReader(args, yt, cfg)
+                lst.output()
 
 
 if __name__ == '__main__':
