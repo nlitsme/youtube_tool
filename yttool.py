@@ -89,6 +89,7 @@ class Youtube:
         hdrs = {
             "x-youtube-client-name": "1",
             "x-youtube-client-version": "2.20200422.04.00",
+            "User-Agent": "Mozilla/5.0 (Mac) Gecko/20100101 Firefox/76.0",
         }
 
         req = urllib.request.Request(url, headers=hdrs)
@@ -117,7 +118,24 @@ class Youtube:
         postdata = urllib.parse.urlencode({ "session_token":xsrf })
         return self.httpreq(url + "?" + urllib.parse.urlencode(query), postdata.encode('ascii') )
         
-        # todo: action_get_comment_replies=1
+        # todo: see what action_get_comment_replies=1 is for.
+
+    def getchat(self, contclick, offset):
+        """
+        Returns chat for the specified continuation parameter.
+        """
+        cont, click = contclick
+        url = "https://www.youtube.com/live_chat_replay/get_live_chat_replay"
+        query = {
+            "pbj": 1,
+            "continuation": cont,
+            "playerOffsetMs": offset,
+            "hidden": False,
+            "commandMetadata": "[object Object]",
+        }
+
+        return self.httpreq(url + "?" + urllib.parse.urlencode(query))
+        
 
     def browse(self, contclick):
         """
@@ -190,6 +208,79 @@ class Youtube:
             print()
 
         return json.loads(cfgtext)
+
+
+
+class LivechatReader:
+    """
+    class which can recursively print comments
+    """
+    def __init__(self, args, yt, cfg):
+        self.args = args
+        self.yt = yt
+        self.contclick = self.getchatinfo(cfg)
+
+    def getcontinuation(self, p):
+        p = getitem(p, "continuations", 0, "reloadContinuationData")
+        # or "liveChatReplayContinuationData" or "playerSeekContinuationData"
+        if not p:
+            return
+        return p["continuation"], p["clickTrackingParams"]
+
+    def getchatinfo(self, cfg):
+        """
+        Find the base parameters for querying the video's comments.
+
+        """
+        item = getitem(cfg, ("playerResponse",), "response", "contents", "twoColumnWatchNextResults", "conversationBar", "liveChatRenderer")
+        return self.getcontinuation(item)
+
+    def recursechat(self):
+        ms = 0
+        while True:
+            cmtjson = self.yt.getchat(self.contclick, ms)
+            if self.args.debug:
+                print("============ chat req")
+                print(cmtjson.decode('utf-8'))
+                print()
+
+            js = json.loads(cmtjson)
+
+            cmtlist, newms = self.extractchat(js) 
+            if newms==ms:
+                break
+
+            for author, time, runs in cmtlist:
+                print("--->", time, author)
+                self.printtextrun(runs)
+
+            ms = newms
+
+    def extractchat(self, js):
+        actions = getitem(js, "response", "continuationContents", "liveChatContinuation", "actions")
+
+        cmtlist = []
+        ms = None
+
+        for act in actions:
+            replay = getitem(act, "replayChatItemAction", "actions")
+            ms = getitem(act, "replayChatItemAction", "videoOffsetTimeMsec")
+
+            item = getitem(replay, ("addChatItemAction",), "addChatItemAction", "item", "liveChatTextMessageRenderer")
+            if item:
+                msg = getitem(item, "message", "runs")
+                author = getitem(item, "authorName", "simpleText")
+                time = getitem(item, "timestampText", "simpleText")
+
+                cmtlist.append((author, time, msg))
+
+        return cmtlist, ms
+
+    def printtextrun(self, runs):
+        for r in runs:
+            print(r.get('text'), end="")
+        print()
+
 
 
 class CommentReader:
@@ -670,6 +761,7 @@ def main():
     parser.add_argument('--info', '-i', action='store_true', help='Print video info')
     parser.add_argument('--srt', action='store_true', help='Output subtitles in .srt format.')
     parser.add_argument('--query', '-q', action='store_true', help='List videos matching the specified query')
+    parser.add_argument('--livechat', action='store_true', help='Print chat contents')
     parser.add_argument('ytids', nargs='+', type=str)
     args = parser.parse_args()
 
@@ -713,6 +805,9 @@ def main():
             if args.subtitles and idtype=='video':
                 txt = SubtitleReader(args, yt, cfg)
                 txt.output()
+            if args.livechat and idtype=='video':
+                txt = LivechatReader(args, yt, cfg)
+                txt.recursechat()
             if args.playlist and idtype=='playlist':
                 lst = PlaylistReader(args, yt, cfg)
                 lst.output()

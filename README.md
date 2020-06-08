@@ -4,6 +4,7 @@ A tool for extracting info from youtube:
  * print all comments for a video
  * print a video's description + info
  * print all subtitles for a video
+ * print out an entire livechat replay.
  * list all items in a playlist
  * list all videos for a channel or user
  * list all video's matching a query
@@ -40,6 +41,13 @@ Or only output the automatically generated subtitles:
 List all the comments for this Numberphile video:
 
     yttool --comments https://www.youtube.com/watch?v=bJOuzqu3MUQ
+
+
+## livechat replay
+
+Print out an entire livechat replay:
+
+    yttool --livechat https://www.youtube.com/watch?v=lE0u_jIDh0E
 
 
 ## list a playlist contents.
@@ -163,7 +171,9 @@ UrlPath:
  * DONE list a channel's video's
  * DONE list a user's video's
  * handle radio links
- * extract live-chat comments
+ * DONE extract live-chat comments
+ * Filter out duplicates from the livechat replay dump.
+ * check how my tool works with an actual live chat.
  * DONE youtube search results.
  * generalize the way continuations are used.
  * add upload date and duration in the video lists.
