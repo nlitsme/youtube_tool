@@ -71,8 +71,6 @@ Or for a user:
 
 Will list first couple of the video's matching that query.
 
-NOTE: I did not yet implement continuations for 'search', so only the first 20 or so results will be displayed.
-
 
 # About youtube video id's
 

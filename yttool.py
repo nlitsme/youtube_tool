@@ -73,6 +73,7 @@ class Youtube:
     Class which knows how to get information from youtune video's
 
     TODO: get youtube client version by requesting youtube with "User-Agent: Mozilla/5.0 (Mac) Gecko/20100101 Firefox/76.0"
+    TODO: extract the inntertubeapikey from the youtube html page.
     """
     def __init__(self, args):
         self.args = args
@@ -81,6 +82,8 @@ class Youtube:
         if args.debug:
             handlers.append(urllib.request.HTTPSHandler(debuglevel=1))
         self.opener = urllib.request.build_opener(*handlers)
+        self.innertubeapikey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+        self.clientversion =  "2.20200603.01.00"
 
     def httpreq(self, url, data=None):
         """
@@ -88,9 +91,11 @@ class Youtube:
         """
         hdrs = {
             "x-youtube-client-name": "1",
-            "x-youtube-client-version": "2.20200422.04.00",
+            "x-youtube-client-version": self.clientversion,
             "User-Agent": "Mozilla/5.0 (Mac) Gecko/20100101 Firefox/76.0",
         }
+        if data and data[:1] in (b'{', b'['):
+            hdrs["Content-Type"] = "application/json"
 
         req = urllib.request.Request(url, headers=hdrs)
 
@@ -108,7 +113,7 @@ class Youtube:
         cont, click = contclick
         url = "https://www.youtube.com/comment_service_ajax"
         query = {
-            "action_get_comments": 1,
+            "action_get_comments": 1,  # todo: see what action_get_comment_replies=1 is for.
             "pbj": 1,
             "ctoken": cont,
             "continuation": cont,
@@ -117,8 +122,6 @@ class Youtube:
 
         postdata = urllib.parse.urlencode({ "session_token":xsrf })
         return self.httpreq(url + "?" + urllib.parse.urlencode(query), postdata.encode('ascii') )
-        
-        # todo: see what action_get_comment_replies=1 is for.
 
     def getchat(self, contclick, offset):
         """
@@ -135,7 +138,21 @@ class Youtube:
         }
 
         return self.httpreq(url + "?" + urllib.parse.urlencode(query))
-        
+
+    def getsearch(self, cont):
+        """
+        Returns next batch of search results
+        """
+        url = "https://www.youtube.com/youtubei/v1/search"
+        query = {
+            "key": self.innertubeapikey
+        }
+        postdata = {
+            "context": { "client": {   "clientName": "WEB", "clientVersion": self.clientversion } },
+            "continuation": cont,
+        }
+        postdata = json.dumps(postdata)
+        return self.httpreq(url + "?" + urllib.parse.urlencode(query), postdata.encode('ascii'))
 
     def browse(self, contclick):
         """
@@ -394,33 +411,43 @@ class SearchReader:
             text.append(r.get('text'))
         return "".join(text)
 
+    def getresults(self, js):
+        ct = getitem(js, "contents", "twoColumnSearchResultsRenderer", "primaryContents", "sectionListRenderer", "contents")
+        if not ct:
+            ct = getitem(js, "onResponseReceivedCommands", 0, "appendContinuationItemsAction", "continuationItems")
 
-    def output(self):
-        cfg = getitem(self.cfg, ("xsrf_token",), "response")
-        ct = getitem(cfg, "contents", "twoColumnSearchResultsRenderer", "primaryContents", "sectionListRenderer", "contents")
         resultlist = getitem(ct, ("itemSectionRenderer",), "itemSectionRenderer", "contents")
-        for item in resultlist:
-            if video := item.get("videoRenderer"):
-                vid = getitem(video, "videoId")
-                pub = getitem(video, "publishedTimeText", "simpleText")
-                title = getitem(video, "title", "runs")
-                # title -> runs
-                # descriptionSnippet -> runs
-                # publishedTimeText -> simpleText
-                # lengthText -> simpleText
-                # viewCountText -> simpleText
-                # ownerText -> runs
-                print("%s - %s" % (vid, self.extractruns(title)))
-            elif chan := item.get("channelRenderer"):
-                cid = getitem(chan, "channelId")
-                title = getitem(chan, "title", "simpleText")
-                # "videoCountText" -> runs
-                # subscriberCountText -> simpleText
-                # descriptionSnippet -> runs
-                print("%s - %s" % (cid, title))
+        cont = getitem(ct, ("continuationItemRenderer",), "continuationItemRenderer", "continuationEndpoint", "continuationCommand", "token")
 
-        # TODO: support continuation
-        #    -> /youtubei/v1/search?key=<innertube_api_key>
+        return resultlist, cont
+
+    def recursesearch(self):
+        resultlist, cont = self.getresults(getitem(self.cfg, ("xsrf_token",), "response"))
+        while True:
+            for item in resultlist:
+                if video := item.get("videoRenderer"):
+                    vid = getitem(video, "videoId")
+                    pub = getitem(video, "publishedTimeText", "simpleText")
+                    title = getitem(video, "title", "runs")
+                    # title -> runs
+                    # descriptionSnippet -> runs
+                    # publishedTimeText -> simpleText
+                    # lengthText -> simpleText
+                    # viewCountText -> simpleText
+                    # ownerText -> runs
+                    print("%s - %s" % (vid, self.extractruns(title)))
+                elif chan := item.get("channelRenderer"):
+                    cid = getitem(chan, "channelId")
+                    title = getitem(chan, "title", "simpleText")
+                    # "videoCountText" -> runs
+                    # subscriberCountText -> simpleText
+                    # descriptionSnippet -> runs
+                    print("%s - %s" % (cid, title))
+
+            jstext = self.yt.getsearch(cont)
+            js = json.loads(jstext)
+            resultlist, cont = self.getresults(js)
+
 
 class DetailReader:
     """
@@ -813,7 +840,7 @@ def main():
                 lst.output()
             if (args.playlist or args.query) and idtype == 'search':
                 q = SearchReader(args, yt, cfg)
-                q.output()
+                q.recursesearch()
             if args.info and idtype=='video':
                 lst = DetailReader(args, yt, cfg)
                 lst.output()
