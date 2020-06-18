@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 A tool for extracting useful information from youtube video's, like comments, or subtitles.
 
@@ -123,11 +124,10 @@ class Youtube:
         postdata = urllib.parse.urlencode({ "session_token":xsrf })
         return self.httpreq(url + "?" + urllib.parse.urlencode(query), postdata.encode('ascii') )
 
-    def getchat(self, contclick, offset):
+    def getchat(self, cont, offset):
         """
         Returns chat for the specified continuation parameter.
         """
-        cont, click = contclick
         url = "https://www.youtube.com/live_chat_replay/get_live_chat_replay"
         query = {
             "pbj": 1,
@@ -235,14 +235,14 @@ class LivechatReader:
     def __init__(self, args, yt, cfg):
         self.args = args
         self.yt = yt
-        self.contclick = self.getchatinfo(cfg)
+        self.cont = self.getchatinfo(cfg)
 
     def getcontinuation(self, p):
         p = getitem(p, "continuations", 0, "reloadContinuationData")
         # or "liveChatReplayContinuationData" or "playerSeekContinuationData"
         if not p:
             return
-        return p["continuation"], p["clickTrackingParams"]
+        return p["continuation"]
 
     def getchatinfo(self, cfg):
         """
@@ -250,12 +250,17 @@ class LivechatReader:
 
         """
         item = getitem(cfg, ("playerResponse",), "response", "contents", "twoColumnWatchNextResults", "conversationBar", "liveChatRenderer")
+        if not item:
+            return
         return self.getcontinuation(item)
 
     def recursechat(self):
+        if not self.cont:
+            print("no live chat replay found")
+            return
         ms = 0
         while True:
-            cmtjson = self.yt.getchat(self.contclick, ms)
+            cmtjson = self.yt.getchat(self.cont, ms)
             if self.args.debug:
                 print("============ chat req")
                 print(cmtjson.decode('utf-8'))
@@ -766,9 +771,9 @@ def parse_youtube_link(url):
 
     elif m := re.match(r'^[A-Za-z0-9_-]+$', path):
         if len(path)==11:
-            return 'video', path
+            yield 'video', path
         else:
-            return 'playlist', path
+            yield 'playlist', path
      
     else:
         raise Exception("unknown id")
@@ -782,14 +787,14 @@ def main():
     parser.add_argument('--debug', '-d', action='store_true', help='print all intermediate steps')
     parser.add_argument('--verbose', '-v', action='store_true', help='prefix each line with the timestamp')
     parser.add_argument('--comments', '-c', action='store_true', help='Print video comments')
-    parser.add_argument('--subtitles', '-t', action='store_true', help='Print video comments')
+    parser.add_argument('--subtitles', '-t', action='store_true', help='Print video subtitles')
     parser.add_argument('--language', type=str, help='Output only subtitles in the specified language')
     parser.add_argument('--playlist', '-l', action='store_true', help='Print playlist items')
     parser.add_argument('--info', '-i', action='store_true', help='Print video info')
     parser.add_argument('--srt', action='store_true', help='Output subtitles in .srt format.')
     parser.add_argument('--query', '-q', action='store_true', help='List videos matching the specified query')
     parser.add_argument('--livechat', action='store_true', help='Print chat contents')
-    parser.add_argument('ytids', nargs='+', type=str)
+    parser.add_argument('ytids', nargs='+', type=str, help='One or more Youtube URLs, or IDs, or a query')
     args = parser.parse_args()
 
     yt = Youtube(args)
