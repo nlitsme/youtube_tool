@@ -9,6 +9,27 @@ A tool for extracting info from youtube:
  * list all videos for a channel or user
  * list all video's matching a query
 
+# install
+
+You can install this from the official python repository using `pip`:
+
+    pip3 install youtube-tool
+
+Note: depending on your local python installation(s), you may have to type
+one of `pip`, `pip3`, or maybe even: `pip3.8`.
+
+
+You can also 'install' this by executing the `yttool.py` file directly from
+the source directory:
+
+    python3 yttool.py  ....arguments...
+
+
+# requirements
+
+This script needs python 3.8 or later to run.
+
+# usage
 
 ## list all subtitles attached to a video.
 
@@ -56,23 +77,49 @@ List all the video's contained in this System of a Down playlist:
 
     yttool --playlist https://www.youtube.com/playlist?list=PLSKnqXUHTaSdXuK8Z2d-hXLFtJbRZwPtJ
 
-Or for a channel:
+The output will look like this:
+
+    CSvFpBOe8eY - System Of A Down - Chop Suey! (Official Video)
+    zUzd9KyIDrM - System Of A Down - B.Y.O.B. (Official Video)
+    L-iepu3EtyE - System Of A Down - Aerials (Official Video)
+    iywaBOMvYLI - System Of A Down - Toxicity (Official Video)
+    DnGdoEa1tPg - System Of A Down - Lonely Day (Official Video)
+    LoheCz4t2xc - System Of A Down - Hypnotize (Official Video)
+    5vBGOrI6yBk - System Of A Down - Sugar (Official Video)
+    SqZNMvIEHhs - System Of A Down - Spiders (Official Video)
+    ENBv2i88g6Y - System Of A Down - Question! (Official Video)
+    bE2r7r7VVic - System Of A Down - Boom! (Official Video)
+    F46r-_jPPHY - System Of A Down - War? (Official Video)
+
+The first 11 characters are the video id, you can load the corresponding video
+by typing: `https://www.youtube.com/watch?v=5vBGOrI6yBk` in your browser's URL bar.
+
+
+Or list all video's from a channel:
 
     yttool -l https://www.youtube.com/channel/UCoxcjq-8xIDTYp3uz647V5A
 
-Or for a user:
+Or when you don't know the channelid, you can get the same with the username:
 
     yttool -l https://www.youtube.com/user/numberphile
 
 
 ## list query results
 
+This:
+
     yttool -q somequery
 
 Will list first couple of the video's matching that query.
 
+## Just the id's
 
-# About youtube video id's
+You can also call yttool with only the video id as an argument:
+
+    yttool --info CSvFpBOe8eY
+
+
+# Side note about youtube video id's
 
 Youtube's id's are structured in several ways:
 
