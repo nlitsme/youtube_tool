@@ -15,6 +15,11 @@ You can install this from the official python repository using `pip`:
 
     pip3 install youtube-tool
 
+This will add a command `yttool` to your python binaries directory,
+and probably also to your search path. So you can run this like:
+
+    yttool ....arguments....
+
 Note: depending on your local python installation(s), you may have to type
 one of `pip`, `pip3`, or maybe even: `pip3.8`.
 
@@ -28,6 +33,8 @@ the source directory:
 # requirements
 
 This script needs python 3.8 or later to run.
+The python3.8 specific feature I am using is the new `:=` walrus operator.
+
 
 # usage
 
@@ -119,7 +126,33 @@ You can also call yttool with only the video id as an argument:
     yttool --info CSvFpBOe8eY
 
 
-# Side note about youtube video id's
+# How does it work?
+
+This script does not use the official youtube API, instead, it uses youtube's internal api, which is
+what is used on the youtube website itself. This does mean there is no guarantee that this script
+will keep working without maintenance. Youtube will keep changing the way it works internally.
+So I will need to keep updating this script.
+
+The advantage of using the internal API, is that there are apparently no limits to how many requests you
+can do. And you don't have to bother with any kind of registration.
+
+
+These are the main internal api urls I am using:
+
+ - comments: `https://www.youtube.com/comment_service_ajax`
+ - livechat: `https://www.youtube.com/live_chat_replay/get_live_chat_replay`
+ - search: `https://www.youtube.com/youtubei/v1/search`
+ - playlists: `https://www.youtube.com/browse_ajax`
+
+Also, you can get youtube to respond with json instead of html by adding a `&pbj=1` argument to most urls,
+and add http headers: `x-youtube-client-name: 1` and `x-youtube-client-version: 2.20200603.01.00` to your request.
+Also the user-agent header needs to be of the right format, see my script for a working example.
+
+Then, for search you need to add a `innertubeapikey`. Which I have currently hardcoded in my script, as i did with the client-version.
+A future improvement would be to automatically extract these from the current youtube front page.
+
+
+# Note about the structure of youtube video id's
 
 Youtube's id's are structured in several ways:
 
@@ -218,10 +251,12 @@ UrlPath:
  * handle radio links
  * DONE extract live-chat comments
  * Filter out duplicates from the livechat replay dump.
- * check how my tool works with an actual live chat.
+ * make my tool work with an actual live chat.
  * DONE youtube search results.
  * generalize the way continuations are used.
  * add upload date and duration in the video lists.
+ * automatically update the innertubeapikey and clientversion
+
 
 # AUTHOR
 
