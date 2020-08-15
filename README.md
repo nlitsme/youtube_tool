@@ -223,8 +223,14 @@ These take
  * prefixes EL, CL also seem to have a special meaning.
 
 
-# Youtube url's
+### post id's
 
+ * 26 characters: Ug<17chars>4AaABCQ
+   * id's start with [wxyz]  : 0b1100xx
+   * id's end with [BFJNRVZdhlptx159]  : 0bxxxx01
+     -> 2 + 15*6 + 4  = 96 bits
+
+# Youtube url's
 
 Domains:
 
@@ -243,6 +249,11 @@ UrlPath:
     /user/<username>
     /watch_videos?video_ids=<videoid>,<videoid>,...
 
+
+# Research tool
+
+I added a tool: `ytdump.py`, which i use to investigate youtube json dictionaries.
+
 # TODO
 
  * DONE extract 'listid' from video links for playlist view.
@@ -256,6 +267,10 @@ UrlPath:
  * generalize the way continuations are used.
  * add upload date and duration in the video lists.
  * automatically update the innertubeapikey and clientversion
+ * get original filename from studio.youtube.com/video/<videoid>/edit
+ * playlist editor / organiser
+ * community post listing
+ * list all on video messages, like cards, etc.
 
 
 # AUTHOR
