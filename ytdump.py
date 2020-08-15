@@ -53,7 +53,7 @@ def processRender(j, path):
     """
     info = []
     for k, item in j.items():
-        if type(item) in (int, str, bool):
+        if type(item) in (int, float, str, bool):
             info.append((k, item))
         elif type(item) != dict:
             pass
@@ -100,7 +100,7 @@ def process(j, path=[]):
     elif type(j) == dict:
         for k, item in j.items():
             process(item, path + [k])
-    elif type(j) in (int, str, bool, type(None)):
+    elif type(j) in (int, float, str, bool, type(None)):
         pass
     else:
         print("unexpected type", type(j), j)
