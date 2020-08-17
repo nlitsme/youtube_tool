@@ -117,7 +117,7 @@ class Youtube:
             "action_get_comments": 1,  # todo: see what action_get_comment_replies=1 is for.
             "pbj": 1,
             "ctoken": cont,
-            "continuation": cont,
+            #"continuation": cont,   # -- it turns out we don't need this 2nd copy of the token.
             "itct": click,
         }
 
