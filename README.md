@@ -75,7 +75,15 @@ List all the comments for this Numberphile video:
 
 Print out an entire livechat replay:
 
-    yttool --livechat https://www.youtube.com/watch?v=lE0u_jIDh0E
+    yttool --replay https://www.youtube.com/watch?v=lE0u_jIDh0E
+
+## follow an active livechat
+
+Note: this does not yet work!
+
+Print messages from a livechat as they come:
+
+    yttool --livechat https://www.youtube.com/watch?v=EEIk7gwjgIM
 
 
 ## list a playlist contents.
@@ -249,6 +257,10 @@ UrlPath:
     /user/<username>
     /watch_videos?video_ids=<videoid>,<videoid>,...
 
+# protoc
+
+Some id's are base64 encoded protobuf packets, like: clickTrackingParams, continuation.
+
 
 # Research tool
 
@@ -271,7 +283,9 @@ I added a tool: `ytdump.py`, which i use to investigate youtube json dictionarie
  * playlist editor / organiser
  * community post listing
  * list all on video messages, like cards, etc.
-
+ * list video markers, like in https://www.youtube.com/watch?v=i2KdE-cYMJk
+ * list other videos from the same channel.
+ * add time, likes to comments
 
 # AUTHOR
 
