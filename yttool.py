@@ -75,6 +75,16 @@ def getitem(d, *path):
             return
     return d
 
+def extracttext(entry):
+    return entry.get("simpleText") or "".join(r.get('text') for r in entry.get("runs"))
+
+
+def getcontinuation(p):
+    p = getitem(p, "continuations", 0, "nextContinuationData")
+    if not p:
+        return
+    return p["continuation"], p["clickTrackingParams"]
+
 
 class Youtube:
     """
@@ -291,7 +301,7 @@ class LivechatReader:
                 print("============ chat req")
                 print(cmtjson.decode('utf-8'))
                 print()
-            if cmtjson.startswith("<!DOCTYPE"):
+            if cmtjson.startswith(b"<!DOCTYPE"):
                 print("not json")
                 break
 
@@ -301,9 +311,9 @@ class LivechatReader:
             if newms==ms:
                 break
 
-            for author, time, runs in cmtlist:
+            for author, time, comment in cmtlist:
                 print("--->", time, author)
-                self.printtextrun(runs)
+                print(extracttext(comment))
 
             ms = newms
 
@@ -319,18 +329,13 @@ class LivechatReader:
 
             item = getitem(replay, ("addChatItemAction",), "addChatItemAction", "item", "liveChatTextMessageRenderer")
             if item:
-                msg = getitem(item, "message", "runs")
+                msg = getitem(item, "message")
                 author = getitem(item, "authorName", "simpleText")
                 time = getitem(item, "timestampText", "simpleText")
 
                 cmtlist.append((author, time, msg))
 
         return cmtlist, ms
-
-    def printtextrun(self, runs):
-        for r in runs:
-            print(r.get('text'), end="")
-        print()
 
 
 
@@ -342,17 +347,6 @@ class CommentReader:
         self.args = args
         self.yt = yt
         self.contclick, self.xsrf = self.getcommentinfo(cfg)
-
-    def printtextrun(self, runs):
-        for r in runs:
-            print(r.get('text'), end="")
-        print()
-
-    def extractruns(self, runs):
-        text = []
-        for r in runs:
-            text.append(r.get('text'))
-        return "".join(text)
 
     def recursecomments(self, cc=None, level=0):
         if not cc:
@@ -368,20 +362,14 @@ class CommentReader:
 
             cmtlist, cc = self.extractcomments(js) 
 
-            for author, when, runs, likes, replies, subcc in cmtlist:
+            for author, when, comment, likes, replies, subcc in cmtlist:
                 if self.args.verbose:
                     print("---" * (level+1) + ">", "%s ; %s ; %s likes ; %s replies" % (author, when, likes, replies))
                 else:
                     print("---" * (level+1) + ">", author)
-                self.printtextrun(runs)
+                print(extracttext(comment))
                 if subcc:
                     self.recursecomments(subcc, level+1)
-
-    def getcontinuation(self, p):
-        p = getitem(p, "continuations", 0, "nextContinuationData")
-        if not p:
-            return
-        return p["continuation"], p["clickTrackingParams"]
 
     def getcommentinfo(self, cfg):
         """
@@ -389,7 +377,7 @@ class CommentReader:
 
         """
         item = getitem(cfg, ("response",), "response", "contents", "twoColumnWatchNextResults", "results", "results", "contents")
-        cont = self.getcontinuation(getitem(item, ("itemSectionRenderer",), "itemSectionRenderer")) 
+        cont = getcontinuation(getitem(item, ("itemSectionRenderer",), "itemSectionRenderer")) 
         xsrf = getitem(cfg, ("response",), "xsrf_token")
 
         return cont, xsrf
@@ -411,13 +399,13 @@ class CommentReader:
             r = r["replies"]
 
         author = getitem(c,  "authorText", "simpleText")
-        content = getitem(c,  "contentText", "runs")
+        content = getitem(c,  "contentText")
         likes = getitem(c, "likeCount")
         nrreplies = getitem(c, "replyCount")
-        when = self.extractruns(getitem(c,  "publishedTimeText", "runs"))
+        when = extracttext(getitem(c,  "publishedTimeText"))
         replies = getitem(r,  "commentRepliesRenderer")
         if replies:
-            cont = self.getcontinuation(replies)
+            cont = getcontinuation(replies)
         else:
             cont = None
 
@@ -442,7 +430,7 @@ class CommentReader:
 
         # header.commentsHeaderRenderer -> commentsCount  at same level as 'contents'
 
-        return cmtlist, self.getcontinuation(p)
+        return cmtlist, getcontinuation(p)
 
 
 class SearchReader:
@@ -450,12 +438,6 @@ class SearchReader:
         self.args = args
         self.yt = yt
         self.cfg = cfg
-
-    def extractruns(self, runs):
-        text = []
-        for r in runs:
-            text.append(r.get('text'))
-        return "".join(text)
 
     def getresults(self, js):
         ct = getitem(js, "contents", "twoColumnSearchResultsRenderer", "primaryContents", "sectionListRenderer", "contents")
@@ -474,14 +456,14 @@ class SearchReader:
                 if video := item.get("videoRenderer"):
                     vid = getitem(video, "videoId")
                     pub = getitem(video, "publishedTimeText", "simpleText")
-                    title = getitem(video, "title", "runs")
+                    title = getitem(video, "title")
                     # title -> runs
                     # descriptionSnippet -> runs
                     # publishedTimeText -> simpleText
                     # lengthText -> simpleText
                     # viewCountText -> simpleText
                     # ownerText -> runs
-                    print("%s - %s" % (vid, self.extractruns(title)))
+                    print("%s - %s" % (vid, extracttext(title)))
                 elif chan := item.get("channelRenderer"):
                     cid = getitem(chan, "channelId")
                     title = getitem(chan, "title", "simpleText")
@@ -600,7 +582,7 @@ class SubtitleReader:
             print("========== timedtext xml")
             print(ttxml.decode('utf-8'))
             print()
-        tt = self.extracttext(ttxml)
+        tt = self.extractxmltext(ttxml)
 
         if self.args.srt:
             self.output_srt(tt)
@@ -637,7 +619,7 @@ class SubtitleReader:
         """
         return html.unescape(re.sub(r'</?font[^>]*>', '', htmltext))
 
-    def extracttext(self, xml):
+    def extractxmltext(self, xml):
         """
         Returns a list of tuples: time, endtime, text
         """
@@ -712,14 +694,14 @@ class PlaylistReader:
                 vid = getitem(entry, entry_tag, "videoId")
                 title = getitem(entry, entry_tag, "title")
                 if vid and title:
-                    print("%s - %s" % (vid, self.extracttext(title)))
+                    print("%s - %s" % (vid, extracttext(title)))
                 c = getitem(entry, "continuationItemRenderer", "continuationEndpoint", "continuationCommand", "token")
                 if c:
                     cl = getitem(entry, "continuationItemRenderer", "continuationEndpoint", "clickTrackingParams")
                     cont = c, cl
 
             if not cont:
-                cont = self.getcontinuation(playlist)
+                cont = getcontinuation(playlist)
             while cont:
                 browsejson = self.yt.browse(cont)
                 if self.args.debug:
@@ -735,7 +717,7 @@ class PlaylistReader:
                     for entry in getitem(playlist, "items"):
                         vid = getitem(entry, "gridVideoRenderer", "videoId")
                         title = getitem(entry, "gridVideoRenderer", "title")
-                        print("%s - %s" % (vid, self.extracttext(title)))
+                        print("%s - %s" % (vid, extracttext(title)))
                 playlist = getitem(js, ("response",), "response", "continuationContents", "playlistVideoListContinuation")
                 item_tag = "contents"
                 if not playlist:
@@ -746,7 +728,7 @@ class PlaylistReader:
                         vid = getitem(entry, "playlistVideoRenderer", "videoId")
                         title = getitem(entry, "playlistVideoRenderer", "title")
                         if vid and title:
-                            print("%s - %s" % (vid, self.extracttext(title)))
+                            print("%s - %s" % (vid, extracttext(title)))
                         c = getitem(entry, "continuationItemRenderer", "continuationEndpoint", "continuationCommand", "token")
                         if c:
                             cl = getitem(entry, "continuationItemRenderer", "continuationEndpoint", "clickTrackingParams")
@@ -755,19 +737,9 @@ class PlaylistReader:
                 if not playlist:
                     break
                 if not cont:
-                    cont = self.getcontinuation(playlist)
+                    cont = getcontinuation(playlist)
 
             return
-
-    def extracttext(self, entry):
-        return entry.get("simpleText") or "".join(r.get('text') for r in entry.get("runs"))
-
-
-    def getcontinuation(self, p):
-        p = getitem(p, "continuations", 0, "nextContinuationData")
-        if not p:
-            return
-        return p["continuation"], p["clickTrackingParams"]
 
 
 def parse_youtube_link(url):
