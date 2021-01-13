@@ -4,6 +4,13 @@ A tool for extracting useful information from youtube video's, like comments, or
 
 Author: Willem Hengeveld <itsme@xs4all.nl>
 
+todo:
+extract 4 different dictionaries from the html page.
+-- ytInitialPlayerResponse
+-- ytcfg.set()
+-- ytplayer.web_player_context_config
+-- ytInitialData 
+
 """
 
 import urllib.request
@@ -84,7 +91,7 @@ class Youtube:
             handlers.append(urllib.request.HTTPSHandler(debuglevel=1))
         self.opener = urllib.request.build_opener(*handlers)
         self.innertubeapikey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
-        self.clientversion =  "2.20200603.01.00"
+        self.clientversion =  "2.20210111.08.00"
 
     def httpreq(self, url, data=None):
         """
@@ -124,11 +131,29 @@ class Youtube:
         postdata = urllib.parse.urlencode({ "session_token":xsrf })
         return self.httpreq(url + "?" + urllib.parse.urlencode(query), postdata.encode('ascii') )
 
-    def getchat(self, cont, offset):
+    def getchat(self, cont, live=False):
         """
         Returns chat for the specified continuation parameter.
         """
-        url = "https://www.youtube.com/live_chat_replay/get_live_chat_replay"
+        if live:
+            url = "https://www.youtube.com/live_chat"
+        else:
+            url = "https://www.youtube.com/live_chat_replay"
+        query = {
+            "pbj": 1,
+            "continuation": cont,
+        }
+
+        return self.httpreq(url + "?" + urllib.parse.urlencode(query))
+
+    def getchat2(self, cont, offset, live=False):
+        """
+        Returns chat for the specified continuation parameter.
+        """
+        if live:
+            url = "https://www.youtube.com/youtubei/v1/live_chat_replay/get_live_chat"
+        else:
+            url = "https://www.youtube.com/youtubei/v1/live_chat_replay/get_live_chat_replay"
         query = {
             "pbj": 1,
             "continuation": cont,
@@ -230,16 +255,16 @@ class Youtube:
 
 class LivechatReader:
     """
-    class which can recursively print comments
+    class reads a livechat or livechat replay.
     """
-    def __init__(self, args, yt, cfg):
+    def __init__(self, args, yt, cfg, live=False):
         self.args = args
         self.yt = yt
+        self.live = live
         self.cont = self.getchatinfo(cfg)
 
     def getcontinuation(self, p):
-        p = getitem(p, "continuations", 0, "reloadContinuationData")
-        # or "liveChatReplayContinuationData" or "playerSeekContinuationData"
+        p = getitem(p, "continuations", 0, "liveChatReplayContinuationData" if self.live else "reloadContinuationData")
         if not p:
             return
         return p["continuation"]
@@ -249,7 +274,7 @@ class LivechatReader:
         Find the base parameters for querying the video's comments.
 
         """
-        item = getitem(cfg, ("playerResponse",), "response", "contents", "twoColumnWatchNextResults", "conversationBar", "liveChatRenderer")
+        item = getitem(cfg, ("response",), "response", "contents", "twoColumnWatchNextResults", "conversationBar", "liveChatRenderer")
         if not item:
             return
         return self.getcontinuation(item)
@@ -260,11 +285,15 @@ class LivechatReader:
             return
         ms = 0
         while True:
-            cmtjson = self.yt.getchat(self.cont, ms)
+            #cmtjson = self.yt.getchat2(self.cont, ms, self.live)
+            cmtjson = self.yt.getchat(self.cont, self.live)
             if self.args.debug:
                 print("============ chat req")
                 print(cmtjson.decode('utf-8'))
                 print()
+            if cmtjson.startswith("<!DOCTYPE"):
+                print("not json")
+                break
 
             js = json.loads(cmtjson)
 
@@ -279,7 +308,7 @@ class LivechatReader:
             ms = newms
 
     def extractchat(self, js):
-        actions = getitem(js, "response", "continuationContents", "liveChatContinuation", "actions")
+        actions = getitem(js, ("response",), "response", "continuationContents", "liveChatContinuation", "actions")
 
         cmtlist = []
         ms = None
@@ -319,6 +348,12 @@ class CommentReader:
             print(r.get('text'), end="")
         print()
 
+    def extractruns(self, runs):
+        text = []
+        for r in runs:
+            text.append(r.get('text'))
+        return "".join(text)
+
     def recursecomments(self, cc=None, level=0):
         if not cc:
             cc = self.contclick
@@ -333,8 +368,11 @@ class CommentReader:
 
             cmtlist, cc = self.extractcomments(js) 
 
-            for author, runs, subcc in cmtlist:
-                print("---" * (level+1) + ">", author)
+            for author, when, runs, likes, replies, subcc in cmtlist:
+                if self.args.verbose:
+                    print("---" * (level+1) + ">", "%s ; %s ; %s likes ; %s replies" % (author, when, likes, replies))
+                else:
+                    print("---" * (level+1) + ">", author)
                 self.printtextrun(runs)
                 if subcc:
                     self.recursecomments(subcc, level+1)
@@ -374,13 +412,16 @@ class CommentReader:
 
         author = getitem(c,  "authorText", "simpleText")
         content = getitem(c,  "contentText", "runs")
+        likes = getitem(c, "likeCount")
+        nrreplies = getitem(c, "replyCount")
+        when = self.extractruns(getitem(c,  "publishedTimeText", "runs"))
         replies = getitem(r,  "commentRepliesRenderer")
         if replies:
             cont = self.getcontinuation(replies)
         else:
             cont = None
 
-        return author, content, cont
+        return author, when, content, int(likes or 0), int(nrreplies or 0), cont
 
     def extractcomments(self, js):
         """
@@ -640,6 +681,10 @@ class PlaylistReader:
         self.cfg = cfg
 
     def output(self):
+        # ==== [                  'playlistVideoRenderer', 1, 'contents', 'playlistVideoListRenderer', 0, 'contents', 'itemSectionRenderer', 0, 'contents', 'sectionListRenderer', 'content', 'tabRenderer', 0, 'tabs', 'twoColumnBrowseResultsRenderer', 'contents', 'response', 1]
+        # ==== ['gridVideoRenderer', 1, 'items', 'horizontalListRenderer', 'content', 'shelfRenderer', 0, 
+        #                     'contents', 'itemSectionRenderer', 1, 'contents', 'sectionListRenderer', 'content', 'tabRenderer', 0, 
+        #                     'tabs', 'twoColumnBrowseResultsRenderer', 'contents', 'response', 1]
         playlist = getitem(self.cfg, ("response",), "response", "contents", "twoColumnWatchNextResults", "playlist")
         if playlist:
             print("Title: %s" % getitem(playlist, "playlist", "title"))
@@ -653,13 +698,28 @@ class PlaylistReader:
                     print("%s - %s" % (vid, title))
             return
         tabs = getitem(self.cfg, ("response",), "response", "contents", "twoColumnBrowseResultsRenderer", "tabs", 0, "tabRenderer", "content")
-        playlist = getitem(tabs, "sectionListRenderer", "contents", 0, "itemSectionRenderer", "contents", 0, "playlistVideoListRenderer")
+        ct1 = getitem(tabs, "sectionListRenderer", "contents", 0, "itemSectionRenderer", "contents", 0)
+        playlist = getitem(ct1, "playlistVideoListRenderer")
+        list_tag = "contents"
+        entry_tag = "playlistVideoRenderer"
+        if not playlist:
+            playlist = getitem(ctl, "shelfRenderer", "content", 'horizontalListRenderer')
+            list_tag = "items"
+            entry_tag = "gridVideoRenderer"
         if playlist:
-            for entry in playlist["contents"]:
-                vid = getitem(entry, "playlistVideoRenderer", "videoId")
-                title = getitem(entry, "playlistVideoRenderer", "title", "simpleText")
-                print("%s - %s" % (vid, title))
-            cont = self.getcontinuation(playlist)
+            cont = None
+            for entry in playlist[list_tag]:
+                vid = getitem(entry, entry_tag, "videoId")
+                title = getitem(entry, entry_tag, "title")
+                if vid and title:
+                    print("%s - %s" % (vid, self.extracttext(title)))
+                c = getitem(entry, "continuationItemRenderer", "continuationEndpoint", "continuationCommand", "token")
+                if c:
+                    cl = getitem(entry, "continuationItemRenderer", "continuationEndpoint", "clickTrackingParams")
+                    cont = c, cl
+
+            if not cont:
+                cont = self.getcontinuation(playlist)
             while cont:
                 browsejson = self.yt.browse(cont)
                 if self.args.debug:
@@ -669,22 +729,39 @@ class PlaylistReader:
 
                 js = json.loads(browsejson)
 
+                cont = None
                 playlist = getitem(js, ("response",), "response", "continuationContents", "gridContinuation")
                 if playlist:
                     for entry in getitem(playlist, "items"):
                         vid = getitem(entry, "gridVideoRenderer", "videoId")
-                        title = getitem(entry, "gridVideoRenderer", "title", "simpleText")
-                        print("%s - %s" % (vid, title))
+                        title = getitem(entry, "gridVideoRenderer", "title")
+                        print("%s - %s" % (vid, self.extracttext(title)))
                 playlist = getitem(js, ("response",), "response", "continuationContents", "playlistVideoListContinuation")
+                item_tag = "contents"
+                if not playlist:
+                    playlist = getitem(js, ("response",), "response", "onResponseReceivedActions", 0, "appendContinuationItemsAction", )
+                    item_tag = "continuationItems"
                 if playlist:
-                    for entry in getitem(playlist, "contents"):
+                    for entry in getitem(playlist, item_tag):
                         vid = getitem(entry, "playlistVideoRenderer", "videoId")
-                        title = getitem(entry, "playlistVideoRenderer", "title", "simpleText")
-                        print("%s - %s" % (vid, title))
+                        title = getitem(entry, "playlistVideoRenderer", "title")
+                        if vid and title:
+                            print("%s - %s" % (vid, self.extracttext(title)))
+                        c = getitem(entry, "continuationItemRenderer", "continuationEndpoint", "continuationCommand", "token")
+                        if c:
+                            cl = getitem(entry, "continuationItemRenderer", "continuationEndpoint", "clickTrackingParams")
+                            cont = c, cl
 
-                cont = self.getcontinuation(playlist)
+                if not playlist:
+                    break
+                if not cont:
+                    cont = self.getcontinuation(playlist)
 
             return
+
+    def extracttext(self, entry):
+        return entry.get("simpleText") or "".join(r.get('text') for r in entry.get("runs"))
+
 
     def getcontinuation(self, p):
         p = getitem(p, "continuations", 0, "nextContinuationData")
@@ -704,6 +781,7 @@ def parse_youtube_link(url):
     (?:www.)?youtube.com...
 
     /channel/<channelid>
+    /c/<channelname>
     /playlist?list=<listid>
     /watch?v=<videoid> [&t=pos] [&list=<listid>]
     /watch/<videoid>
@@ -713,7 +791,6 @@ def parse_youtube_link(url):
     /watch_videos?video_ids=<videoid>,<videoid>,...
     /results?search_query=...
     """
-
     m = re.match(r'^(?:https?://)?(?:www\.)?(?:(?:youtu\.be|youtube\.com)/)?(.*)', url)
     if not m:
         raise Exception("youtube link not matched")
@@ -728,6 +805,8 @@ def parse_youtube_link(url):
             idtype = 'video'
         elif idtype in ('channel'):
             idtype = 'channel'
+        elif idtype in ('c'):
+            idtype = 'channelname'
         elif idtype in ('playlist'):
             idtype = 'playlist'
         else:
@@ -779,7 +858,7 @@ def parse_youtube_link(url):
         raise Exception("unknown id")
 
 def channelurl_from_userpage(cfg):
-    return getitem(cfg, ("playerResponse",), "response", "metadata", "channelMetadataRenderer", "channelUrl")
+    return getitem(cfg, ("response",), "response", "metadata", "channelMetadataRenderer", "channelUrl")
 
 def main():
     import argparse
@@ -793,13 +872,12 @@ def main():
     parser.add_argument('--info', '-i', action='store_true', help='Print video info')
     parser.add_argument('--srt', action='store_true', help='Output subtitles in .srt format.')
     parser.add_argument('--query', '-q', action='store_true', help='List videos matching the specified query')
-    parser.add_argument('--livechat', action='store_true', help='Print chat contents')
+    parser.add_argument('--livechat', action='store_true', help='Follow livechat contents')
+    parser.add_argument('--replay', action='store_true', help='Print livechat replay')
     parser.add_argument('ytids', nargs='+', type=str, help='One or more Youtube URLs, or IDs, or a query')
     args = parser.parse_args()
 
     yt = Youtube(args)
-
-
 
     for url in args.ytids:
         if len(args.ytids) > 1:
@@ -837,8 +915,8 @@ def main():
             if args.subtitles and idtype=='video':
                 txt = SubtitleReader(args, yt, cfg)
                 txt.output()
-            if args.livechat and idtype=='video':
-                txt = LivechatReader(args, yt, cfg)
+            if (args.replay or args.livechat) and idtype=='video':
+                txt = LivechatReader(args, yt, cfg, live=args.livechat)
                 txt.recursechat()
             if args.playlist and idtype=='playlist':
                 lst = PlaylistReader(args, yt, cfg)
