@@ -22,11 +22,38 @@ import sys
 import html
 import datetime
 from collections import defaultdict
-
 from xml.parsers.expat import ParserCreate
 
 import http.client
 
+
+def load_socks_proxy(proxyarg):
+    m = re.match(r'(?:(\w+)://)?(\S+):(\d+)', proxyarg)
+    if not m:
+        return
+    method, host, port = m.groups()
+    port = int(port)
+
+    if not method or not method.startswith('socks'):
+        return
+
+    import socks
+    socks.setdefaultproxy(socks.SOCKS4 if method.startswith('socks4') else socks.SOCKS5, host, port)
+    def create_connection(address, timeout=None, source_address=None):
+        sock = socks.socksocket()
+        sock.connect(address)
+        return sock
+    import socket
+    socket.create_connection = create_connection
+    socket.socket = socks.socksocket
+
+
+def decode_proxy(proxyarg):
+    if m:= re.match(r'(?:(\w+)://)?(\S+):(\d+)', proxyarg):
+        method, host, port = m.groups()
+        port = int(port)
+        if not method or method.startswith('http'):
+            return { 'http': proxyarg, 'https': proxyarg }
 
 def cvdate(txt):
     """
@@ -97,6 +124,10 @@ class Youtube:
         self.args = args
         cj = http.cookiejar.CookieJar()
         handlers = [urllib.request.HTTPCookieProcessor(cj)]
+        if args.proxy:
+            proxies = decode_proxy(args.proxy)
+            if proxies:
+                handlers.append(urllib.request.ProxyHandler(proxies))
         if args.debug:
             handlers.append(urllib.request.HTTPSHandler(debuglevel=1))
         self.opener = urllib.request.build_opener(*handlers)
@@ -122,7 +153,13 @@ class Youtube:
             kwargs["data"] = data
 
         response = self.opener.open(req, **kwargs)
-        return response.read()
+        try:
+            page = response.read()
+        except http.client.IncompleteRead as e:
+            page = e.partial
+            print("EXCEPTION FOUND: http.client.IncompleteRead")
+            pass
+        return page
 
     def getcomments(self, contclick, xsrf):
         """
@@ -833,6 +870,9 @@ def channelurl_from_userpage(cfg):
     return getitem(cfg, ("response",), "response", "metadata", "channelMetadataRenderer", "channelUrl")
 
 def main():
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf8')
+
     import argparse
     parser = argparse.ArgumentParser(description='Extract Youtube comments')
     parser.add_argument('--debug', '-d', action='store_true', help='print all intermediate steps')
@@ -846,8 +886,12 @@ def main():
     parser.add_argument('--query', '-q', action='store_true', help='List videos matching the specified query')
     parser.add_argument('--livechat', action='store_true', help='Follow livechat contents')
     parser.add_argument('--replay', action='store_true', help='Print livechat replay')
+    parser.add_argument('--proxy', type=str, help='Specify a proxy to use.')
     parser.add_argument('ytids', nargs='+', type=str, help='One or more Youtube URLs, or IDs, or a query')
     args = parser.parse_args()
+
+    if args.proxy and args.proxy.startswith('socks'):
+        load_socks_proxy(args.proxy)
 
     yt = Youtube(args)
 
