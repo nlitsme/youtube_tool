@@ -134,6 +134,15 @@ You can also call yttool with only the video id as an argument:
     yttool --info CSvFpBOe8eY
 
 
+# How to use with a proxy?
+
+For example if you would like to use TOR, you would do this:
+
+    yttool --proxy socks5://localhost:9050 --info https://www.youtube.com/watch?v=Ll-_LV9U1tA
+
+Note that setting a socks proxy via the `https_proxy` environment variable does NOT work very well with python's urllib library.
+
+
 # How does it work?
 
 This script does not use the official youtube API, instead, it uses youtube's internal api, which is
