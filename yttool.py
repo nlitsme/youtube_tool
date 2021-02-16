@@ -869,6 +869,14 @@ def parse_youtube_link(url):
 def channelurl_from_userpage(cfg):
     return getitem(cfg, ("response",), "response", "metadata", "channelMetadataRenderer", "channelUrl")
 
+def check_error(cfg):
+    status = getitem(cfg, ("playerResponse",), "playerResponse", "playabilityStatus")
+    if not status:
+        return
+    if status["status"] == "ERROR":
+        print(status["reason"])
+        return True
+
 def main():
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf8')
@@ -919,6 +927,8 @@ def main():
                 url = "https://www.youtube.com/results?" + urllib.parse.urlencode({"search_query": idvalue})
 
             cfg = yt.getpageinfo(url)
+            if check_error(cfg):
+                continue
 
             if idtype=='username':
                 url = channelurl_from_userpage(cfg)
