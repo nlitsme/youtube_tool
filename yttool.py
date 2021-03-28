@@ -161,19 +161,22 @@ class Youtube:
             pass
         return page
 
-    def getcomments(self, contclick, xsrf):
+    def getcomments(self, contclick, xsrf, replies=False):
         """
         Returns comments for the specified continuation parameter.
         """
         cont, click = contclick
         url = "https://www.youtube.com/comment_service_ajax"
         query = {
-            "action_get_comments": 1,  # todo: see what action_get_comment_replies=1 is for.
             "pbj": 1,
             "ctoken": cont,
             #"continuation": cont,   # -- it turns out we don't need this 2nd copy of the token.
             "itct": click,
         }
+        if replies:
+            query["action_get_comment_replies"] = 1
+        else:
+            query["action_get_comments"] = 1
 
         postdata = urllib.parse.urlencode({ "session_token":xsrf })
         return self.httpreq(url + "?" + urllib.parse.urlencode(query), postdata.encode('ascii') )
@@ -389,13 +392,17 @@ class CommentReader:
         if not cc:
             cc = self.contclick
         while cc:
-            cmtjson = self.yt.getcomments(cc, self.xsrf)
+            cmtjson = self.yt.getcomments(cc, self.xsrf, replies=(level>0))
             if self.args.debug:
                 print("============ comment req")
                 print(cmtjson.decode('utf-8'))
                 print()
 
             js = json.loads(cmtjson)
+
+            if type(js)==list:
+                # this is for 'replies', which return an array instead of a dict as the top-level response.
+                js = getitem(js, ("response",))
 
             cmtlist, cc = self.extractcomments(js) 
 
