@@ -78,20 +78,20 @@ def process(j, path=[]):
     if path:
         if pathendswith(path, "*Renderer"):
             if type(j)!=dict:
-                print("Renderer without dict", path)
+                print("WARNING: Renderer without dict", path)
             else:
                 processRender(j, path)
         elif pathendswith(path, "continuations"):
             if not pathendswith(path, "*Renderer", "continuations"):
-                print("continuations without renderer", path)
+                print("WARNING: continuations without renderer", path)
             pass
         elif pathendswith(path, "nextContinuationData"):
             if not pathendswith(path, "continuations", int, "nextContinuationData"):
-                print("continuationData without continuation", path)
+                print("WARNING: nextContinuationData without continuations", path)
             pass
         elif pathendswith(path, "continuation"):
             if not pathendswith(path, "nextContinuationData", "continuation"):
-                print("continuation without continuationData", path)
+                print("WARNING: continuation without nextContinuationData", path)
             pass
 
     if type(j) == list:
@@ -103,7 +103,7 @@ def process(j, path=[]):
     elif type(j) in (int, float, str, bool, type(None)):
         pass
     else:
-        print("unexpected type", type(j), j)
+        print("WARNING: unexpected type", type(j), j)
 
 
 def main():
