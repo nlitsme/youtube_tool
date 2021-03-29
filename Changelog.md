@@ -3,3 +3,13 @@
 1.0.5  - 2020-08-17
  * fixed issue with 'too large request' error, for video's with lots of comments.
 
+1.0.6  - 2021-01-13
+ * repaired 'chat replay'
+ * repaired -l option
+
+1.0.7  - 2021-02-16
+ * added optional socks / tor proxy
+ * output text as utf-8.
+
+1.0.8  - 2021-03-29
+ * made comments work again.
