@@ -148,7 +148,7 @@ class Youtube:
             #"X-Youtube-Identity-Token": self.idtoken,
             "User-Agent": "Mozilla/5.0 (Mac) Gecko/20100101 Firefox/76.0",
         }
-        if data is not None and data[:1] in (b'{', b'['):
+        if type(data)==bytes and data[:1] in (b'{', b'['):
             hdrs["Content-Type"] = "application/json"
 
         req = urllib.request.Request(url, headers=hdrs)
@@ -220,6 +220,17 @@ class Youtube:
         }
 
         return self.httpreq(url + "?" + urllib.parse.urlencode(query))
+
+    def getlivechat(self, cont):
+        url = "https://www.youtube.com/youtubei/v1/live_chat/get_live_chat"
+        query = { "key": self.innertubeapikey, }
+        postdata = {
+            "context": { "client": {   "clientName": "WEB", "clientVersion": self.clientversion } },
+            "continuation": cont
+        }
+
+        return self.httpreq(url + "?" + urllib.parse.urlencode(query), json.dumps(postdata).encode('utf-8'))
+
 
     def getsearch(self, cont):
         """
@@ -426,18 +437,23 @@ class LivechatReader:
             else:
                 js = json.loads(cmtjson)
 
-            cmtlist, newms = self.extractchat(js) 
+            cmtlist, newms = self.extractchat(js["initdata"]) 
             if newms==ms:
                 break
 
             for author, time, comment in cmtlist:
-                print("--->", time or "", author)
+                print("--->", time, author)
                 print(extracttext(comment))
 
             ms = newms
 
+        print("========== live ===========")
+
+        self.monitorchat(js["initdata"])
+
+
     def extractchat(self, js):
-        actions = getitem(js, "initdata", "continuationContents", "liveChatContinuation", "actions")
+        actions = getitem(js, "continuationContents", "liveChatContinuation", "actions")
         if not actions:
             return [], None
 
@@ -471,6 +487,26 @@ class LivechatReader:
                 addchatitem(item)
 
         return cmtlist, ms
+
+    def monitorchat(self, js):
+        while True:
+            cont = getitem(js, "continuationContents", "liveChatContinuation", "continuations", 0, "invalidationContinuationData", "continuation")
+            respjson = self.yt.getlivechat(cont)
+            if self.args.debug:
+                print("============ comment req")
+                print(respjson.decode('utf-8'))
+                print()
+            js = json.loads(respjson)
+
+            cmtlist, newms = self.extractchat(js) 
+
+            for author, time, comment in cmtlist:
+                print("--->", time, author)
+                print(extracttext(comment))
+            sys.stdout.flush()
+
+            import time
+            time.sleep(1)
 
 
 

@@ -283,7 +283,7 @@ I added a tool: `ytdump.py`, which i use to investigate youtube json dictionarie
  * handle radio links
  * DONE extract live-chat comments
  * Filter out duplicates from the livechat replay dump.
- * make my tool work with an actual live chat.
+ * DONE make my tool work with an actual live chat.
  * DONE youtube search results.
  * generalize the way continuations are used.
  * add upload date and duration in the video lists.
