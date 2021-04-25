@@ -13,3 +13,10 @@
 
 1.0.8  - 2021-03-29
  * made comments work again.
+
+1.0.9  - 2021-04-25
+ * all options work again, after changes to the youtube api.
+
+1.0.10 - 2021-04-25
+ * --livechat now monitors the livechat
+
