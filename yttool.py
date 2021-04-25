@@ -91,6 +91,8 @@ def getitem(d, *path):
      * a string: select the specified item from a dictionary.
     """
     for k in path:
+        if d is None:
+            return
         if type(k) == tuple:
             d = getitembymember(d, *k)
         elif type(k) == int:
@@ -98,12 +100,10 @@ def getitem(d, *path):
         else:
             d = d.get(k)
 
-        if d is None:
-            return
     return d
 
 def extracttext(entry):
-    return entry.get("simpleText") or "".join(r.get('text') for r in entry.get("runs"))
+    return entry.get("simpleText") or "".join(r.get('text', "") for r in entry.get("runs"))
 
 
 def getcontinuation(p):
@@ -119,11 +119,16 @@ class Youtube:
 
     TODO: get youtube client version by requesting youtube with "User-Agent: Mozilla/5.0 (Mac) Gecko/20100101 Firefox/76.0"
     TODO: extract the inntertubeapikey from the youtube html page.
+    TODO: extract ID_TOKEN 
     """
     def __init__(self, args):
         self.args = args
         cj = http.cookiejar.CookieJar()
-        handlers = [urllib.request.HTTPCookieProcessor(cj)]
+        cj.set_cookie(http.cookiejar.Cookie(version=0, name="CONSENT", value="YES+cb.20210420-15-p1.en+FX+374", port=None, port_specified=False, domain=".youtube.com", domain_specified=True, domain_initial_dot=True, path="/", path_specified=True, secure=False, expires=None, discard=False, comment=None, comment_url=None, rest={}))
+
+        self.cp = urllib.request.HTTPCookieProcessor(cj)
+
+        handlers = [self.cp]
         if args.proxy:
             proxies = decode_proxy(args.proxy)
             if proxies:
@@ -131,8 +136,18 @@ class Youtube:
         if args.debug:
             handlers.append(urllib.request.HTTPSHandler(debuglevel=1))
         self.opener = urllib.request.build_opener(*handlers)
-        self.innertubeapikey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
-        self.clientversion =  "2.20210111.08.00"
+        self.innertubeapikey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"   # "INNERTUBE_API_KEY": "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+        self.clientname =      "1"                                         # "INNERTUBE_CONTEXT_CLIENT_NAME": 1,
+        self.clientversion =  "2.20210422.04.00"                           # "INNERTUBE_CONTEXT_CLIENT_VERSION": "2.20210404.08.00",
+        self.idtoken = "QUFFLUhqa1oySl9mbm9mODhfdENjQWdDcENvazM2RS1qZ3w="  # "ID_TOKEN": "QUFFLUhqa1oySl9mbm9mODhfdENjQWdDcENvazM2RS1qZ3w=",
+
+        html = self.httpreq("https://www.youtube.com/")
+        cfg = self.getytcfg(html.decode('utf-8'))
+
+        self.innertubeapikey = cfg.get("INNERTUBE_API_KEY")
+        self.clientname =      cfg.get("INNERTUBE_CONTEXT_CLIENT_NAME")
+        self.clientversion =   cfg.get("INNERTUBE_CONTEXT_CLIENT_VERSION")
+        
 
     def httpreq(self, url, data=None):
         """
@@ -141,15 +156,16 @@ class Youtube:
         hdrs = {
             "x-youtube-client-name": "1",
             "x-youtube-client-version": self.clientversion,
+            #"X-Youtube-Identity-Token": self.idtoken,
             "User-Agent": "Mozilla/5.0 (Mac) Gecko/20100101 Firefox/76.0",
         }
-        if data and data[:1] in (b'{', b'['):
+        if data is not None and data[:1] in (b'{', b'['):
             hdrs["Content-Type"] = "application/json"
 
         req = urllib.request.Request(url, headers=hdrs)
 
         kwargs = dict()
-        if data:
+        if data is not None:
             kwargs["data"] = data
 
         response = self.opener.open(req, **kwargs)
@@ -159,6 +175,7 @@ class Youtube:
             page = e.partial
             print("EXCEPTION FOUND: http.client.IncompleteRead")
             pass
+
         return page
 
     def getcomments(self, contclick, xsrf, replies=False):
@@ -170,15 +187,16 @@ class Youtube:
         query = {
             "pbj": 1,
             "ctoken": cont,
-            #"continuation": cont,   # -- it turns out we don't need this 2nd copy of the token.
+            "continuation": cont,   # -- it turns out we don't need this 2nd copy of the token.
             "itct": click,
+            "type": "next",
         }
         if replies:
             query["action_get_comment_replies"] = 1
         else:
             query["action_get_comments"] = 1
 
-        postdata = urllib.parse.urlencode({ "session_token":xsrf })
+        postdata = urllib.parse.urlencode(xsrf)
         return self.httpreq(url + "?" + urllib.parse.urlencode(query), postdata.encode('ascii') )
 
     def getchat(self, cont, live=False):
@@ -253,7 +271,22 @@ class Youtube:
             print(ytcfgtext.decode('utf-8'))
             print()
 
-        return json.loads(ytcfgtext)
+        try:
+            return json.loads(ytcfgtext.lstrip(b")]}'"))
+        except Exception as e:
+            if self.args.verbose:
+                print("EXCEPTION in getpageinfo: %s" % e)
+            if self.args.debug:
+                raise
+            return
+
+    def getytcfg(self, ythtml):
+        ytcfg = {}
+        for m in re.finditer(r'ytcfg\.set\((\{.*?\})\)', ythtml):
+            jsontxt = m.group(1).replace("'", '"').replace('",}', '"}')
+            ytcfg.update(json.loads(jsontxt))
+        return ytcfg
+
 
     def getconfigfromhtml(self, ythtml):
         """
@@ -302,6 +335,51 @@ class Youtube:
         return json.loads(cfgtext)
 
 
+def filterhtml(html):
+    result = {}
+    for m in re.finditer(r'ytcfg\.set\(([^{}]*?),([^{}]*?)\)', html):
+        #print("yt1", m.groups())
+        pass
+    result["ytcfg"] = {}
+    for m in re.finditer(r'ytcfg\.set\((\{.*?\})\)', html):
+        #print("yt2", m.group(1))
+        jsontxt = m.group(1).replace("'", '"').replace('",}', '"}')
+        result["ytcfg"].update(json.loads(jsontxt))
+        # TIMING_INFO.cver: "2.20210111.08.00",
+
+    if m := re.search(r'<script type="application/ld\+json"[^>]*>(\{.*?\})</script>', html):
+        #print("ld", m.group(1))
+        result["ldjson"] = json.loads(m.group(1))
+
+    if m := re.search(r'ytplayer.web_player_context_config = (\{.*?\});', html):
+        #print("cfg", m.group(1))
+        result["playercg"] = json.loads(m.group(1))
+        # device.interfaceVersion: "2.20210111.08.00",
+        # "innertubeApiKey": "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+        # "innertubeContextClientVersion": "2.20210111.08.00",
+
+    if m := re.search(r'setMessage\((\{.*?\})\);', html):
+        #print("msg", m.group(1))
+        result["msg"] = json.loads(m.group(1))
+
+    if m := re.search(r'<script[^>]*>var ytInitialPlayerResponse = (\{.*?\});', html):
+        #print("initplayer", m.group(1))
+        result["initplayer"] = json.loads(m.group(1))
+        # note: this is the same as pbj.[].playerResponse
+
+    if m := re.search(r'<script[^>]*>var ytInitialData = (\{.*?\});</script>', html):
+        #print("initdata", m.group(1))
+        result["initdata"] = json.loads(m.group(1))
+        # note: this is the same as pbj.[].response
+    if m := re.search(r'<script[^>]*>window\["ytInitialData"\] = (\{.*?\});</script>', html):
+        #print("initdata", m.group(1))
+        result["initdata"] = json.loads(m.group(1))
+        # note: this is the same as pbj.[].response
+
+
+    return result
+
+
 
 class LivechatReader:
     """
@@ -314,7 +392,7 @@ class LivechatReader:
         self.cont = self.getchatinfo(cfg)
 
     def getcontinuation(self, p):
-        p = getitem(p, "continuations", 0, "liveChatReplayContinuationData" if self.live else "reloadContinuationData")
+        p = getitem(p, "continuations", 0, "reloadContinuationData")
         if not p:
             return
         return p["continuation"]
@@ -324,9 +402,10 @@ class LivechatReader:
         Find the base parameters for querying the video's comments.
 
         """
-        item = getitem(cfg, ("response",), "response", "contents", "twoColumnWatchNextResults", "conversationBar", "liveChatRenderer")
+        item = getitem(cfg, "initdata", "contents", "twoColumnWatchNextResults", "conversationBar", "liveChatRenderer")
         if not item:
             return
+
         return self.getcontinuation(item)
 
     def recursechat(self):
@@ -342,38 +421,57 @@ class LivechatReader:
                 print(cmtjson.decode('utf-8'))
                 print()
             if cmtjson.startswith(b"<!DOCTYPE"):
-                print("not json")
-                break
-
-            js = json.loads(cmtjson)
+                js = filterhtml(cmtjson.decode('utf-8'))
+                if self.args.debug:
+                    print("============ chat req extracted json")
+                    print(json.dumps(js))
+                    print()
+            else:
+                js = json.loads(cmtjson)
 
             cmtlist, newms = self.extractchat(js) 
             if newms==ms:
                 break
 
             for author, time, comment in cmtlist:
-                print("--->", time, author)
+                print("--->", time or "", author)
                 print(extracttext(comment))
 
             ms = newms
 
     def extractchat(self, js):
-        actions = getitem(js, ("response",), "response", "continuationContents", "liveChatContinuation", "actions")
+        actions = getitem(js, "initdata", "continuationContents", "liveChatContinuation", "actions")
+        if not actions:
+            return [], None
 
         cmtlist = []
         ms = None
 
+        def addchatitem(item):
+            msg = getitem(item, "message")
+            author = getitem(item, "authorName", "simpleText")
+            time = getitem(item, "timestampText", "simpleText")
+            if time is None:
+                timeusec = getitem(item, "timestampUsec")
+                if timeusec is not None:
+                    dt = datetime.datetime.fromtimestamp(int(timeusec)/1000000)
+                    time = dt.strftime("%Y-%m-%d %H:%M:%S")
+
+            cmtlist.append((author, time, msg))
+
         for act in actions:
-            replay = getitem(act, "replayChatItemAction", "actions")
+            replayactions = getitem(act, "replayChatItemAction", "actions")
             ms = getitem(act, "replayChatItemAction", "videoOffsetTimeMsec")
 
-            item = getitem(replay, ("addChatItemAction",), "addChatItemAction", "item", "liveChatTextMessageRenderer")
-            if item:
-                msg = getitem(item, "message")
-                author = getitem(item, "authorName", "simpleText")
-                time = getitem(item, "timestampText", "simpleText")
+            if replayactions:
+                for ract in replayactions:
+                    item = getitem(ract, "addChatItemAction", "item", "liveChatTextMessageRenderer")
+                    if item:
+                        addchatitem(item)
 
-                cmtlist.append((author, time, msg))
+            item = getitem(act, "addChatItemAction", "item", "liveChatTextMessageRenderer")
+            if item:
+                addchatitem(item)
 
         return cmtlist, ms
 
@@ -398,6 +496,9 @@ class CommentReader:
                 print(cmtjson.decode('utf-8'))
                 print()
 
+            if not cmtjson:
+                raise Exception("empty response")
+
             js = json.loads(cmtjson)
 
             if type(js)==list:
@@ -420,11 +521,14 @@ class CommentReader:
         Find the base parameters for querying the video's comments.
 
         """
-        item = getitem(cfg, ("response",), "response", "contents", "twoColumnWatchNextResults", "results", "results", "contents")
+        item = getitem(cfg, "initdata", "contents", "twoColumnWatchNextResults", "results", "results", "contents")
         cont = getcontinuation(getitem(item, ("itemSectionRenderer",), "itemSectionRenderer")) 
-        xsrf = getitem(cfg, ("response",), "xsrf_token")
+        xsrftoken = getitem(cfg, "ytcfg", "XSRF_TOKEN")
+        xsrffield = getitem(cfg, "ytcfg", "XSRF_FIELD_NAME")
 
-        return cont, xsrf
+        xsrfdict = { xsrffield: xsrftoken } if xsrftoken else {}
+
+        return cont, xsrfdict 
 
     def getcomment(self, p):
         """
@@ -494,7 +598,8 @@ class SearchReader:
         return resultlist, cont
 
     def recursesearch(self):
-        resultlist, cont = self.getresults(getitem(self.cfg, ("xsrf_token",), "response"))
+
+        resultlist, cont = self.getresults(getitem(self.cfg, "initdata"))
         while True:
             for item in resultlist:
                 if video := item.get("videoRenderer"):
@@ -531,9 +636,9 @@ class DetailReader:
         self.cfg = cfg
 
     def output(self):
-        vd = getitem(self.cfg, ("playerResponse",), "playerResponse", "videoDetails")
-        mf = getitem(self.cfg, ("playerResponse",), "playerResponse", "microformat", "playerMicroformatRenderer")
-        twocol = getitem(self.cfg, ("response",), "response", "contents", "twoColumnWatchNextResults", "results", "results", "contents")
+        vd = getitem(self.cfg, "initplayer", "videoDetails")
+        mf = getitem(self.cfg, "initplayer", "microformat", "playerMicroformatRenderer")
+        twocol = getitem(self.cfg, "initdata", "contents", "twoColumnWatchNextResults", "results", "results", "contents")
         sentiment = getitem(twocol, ("videoPrimaryInfoRenderer",), "videoPrimaryInfoRenderer", "sentimentBar", "sentimentBarRenderer", "tooltip")
 
         if not mf:
@@ -581,7 +686,7 @@ class SubtitleReader:
             return True
 
     def output(self):
-        js = getitem(self.cfg, ("playerResponse",), "playerResponse")
+        js = getitem(self.cfg, "initplayer")
         p = getitem(js, "captions", "playerCaptionsTracklistRenderer", "captionTracks")
             
         if not p:
@@ -711,7 +816,7 @@ class PlaylistReader:
         # ==== ['gridVideoRenderer', 1, 'items', 'horizontalListRenderer', 'content', 'shelfRenderer', 0, 
         #                     'contents', 'itemSectionRenderer', 1, 'contents', 'sectionListRenderer', 'content', 'tabRenderer', 0, 
         #                     'tabs', 'twoColumnBrowseResultsRenderer', 'contents', 'response', 1]
-        playlist = getitem(self.cfg, ("response",), "response", "contents", "twoColumnWatchNextResults", "playlist")
+        playlist = getitem(self.cfg, "initdata", "contents", "twoColumnWatchNextResults", "playlist")
         if playlist:
             print("Title: %s" % getitem(playlist, "playlist", "title"))
             for entry in getitem(playlist, "playlist", "contents"):
@@ -723,7 +828,7 @@ class PlaylistReader:
                 else:
                     print("%s - %s" % (vid, title))
             return
-        tabs = getitem(self.cfg, ("response",), "response", "contents", "twoColumnBrowseResultsRenderer", "tabs", 0, "tabRenderer", "content")
+        tabs = getitem(self.cfg, "initdata", "contents", "twoColumnBrowseResultsRenderer", "tabs", 0, "tabRenderer", "content")
         ct1 = getitem(tabs, "sectionListRenderer", "contents", 0, "itemSectionRenderer", "contents", 0)
         playlist = getitem(ct1, "playlistVideoListRenderer")
         list_tag = "contents"
@@ -756,16 +861,16 @@ class PlaylistReader:
                 js = json.loads(browsejson)
 
                 cont = None
-                playlist = getitem(js, ("response",), "response", "continuationContents", "gridContinuation")
+                playlist = getitem(js, "initdata", "continuationContents", "gridContinuation")
                 if playlist:
                     for entry in getitem(playlist, "items"):
                         vid = getitem(entry, "gridVideoRenderer", "videoId")
                         title = getitem(entry, "gridVideoRenderer", "title")
                         print("%s - %s" % (vid, extracttext(title)))
-                playlist = getitem(js, ("response",), "response", "continuationContents", "playlistVideoListContinuation")
+                playlist = getitem(js, "initdata", "continuationContents", "playlistVideoListContinuation")
                 item_tag = "contents"
                 if not playlist:
-                    playlist = getitem(js, ("response",), "response", "onResponseReceivedActions", 0, "appendContinuationItemsAction", )
+                    playlist = getitem(js, "initdata", "onResponseReceivedActions", 0, "appendContinuationItemsAction", )
                     item_tag = "continuationItems"
                 if playlist:
                     for entry in getitem(playlist, item_tag):
@@ -874,10 +979,12 @@ def parse_youtube_link(url):
         raise Exception("unknown id")
 
 def channelurl_from_userpage(cfg):
-    return getitem(cfg, ("response",), "response", "metadata", "channelMetadataRenderer", "channelUrl")
+    return getitem(cfg, "initdata", "metadata", "channelMetadataRenderer", "channelUrl")
+    # or "initplayer", "microformat", "playerMicroformatRenderer", "externalChannelId"
+    # or "initplayer", "videoDetails", "channelId"
 
 def check_error(cfg):
-    status = getitem(cfg, ("playerResponse",), "playerResponse", "playabilityStatus")
+    status = getitem(cfg, "initplayer", "playabilityStatus")
     if not status:
         return
     if status["status"] == "ERROR":
@@ -933,9 +1040,19 @@ def main():
             elif idtype == 'search':
                 url = "https://www.youtube.com/results?" + urllib.parse.urlencode({"search_query": idvalue})
 
-            cfg = yt.getpageinfo(url)
-            if check_error(cfg):
-                continue
+            #cfg = yt.getpageinfo(url)
+            #if check_error(cfg):
+            #    continue
+            html = yt.httpreq(url)
+            if args.debug:
+                print("============ youtube html")
+                print(html.decode('utf-8'))
+                print()
+            cfg = filterhtml(html.decode('utf-8'))
+            if args.debug:
+                print("============ youtube extracted config")
+                print(json.dumps(cfg))
+                print()
 
             if idtype=='username':
                 url = channelurl_from_userpage(cfg)
