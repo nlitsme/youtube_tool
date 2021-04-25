@@ -4,13 +4,6 @@ A tool for extracting useful information from youtube video's, like comments, or
 
 Author: Willem Hengeveld <itsme@xs4all.nl>
 
-todo:
-extract 4 different dictionaries from the html page.
--- ytInitialPlayerResponse
--- ytcfg.set()
--- ytplayer.web_player_context_config
--- ytInitialData 
-
 """
 
 import urllib.request
@@ -116,10 +109,6 @@ def getcontinuation(p):
 class Youtube:
     """
     Class which knows how to get information from youtune video's
-
-    TODO: get youtube client version by requesting youtube with "User-Agent: Mozilla/5.0 (Mac) Gecko/20100101 Firefox/76.0"
-    TODO: extract the inntertubeapikey from the youtube html page.
-    TODO: extract ID_TOKEN 
     """
     def __init__(self, args):
         self.args = args
@@ -336,6 +325,14 @@ class Youtube:
 
 
 def filterhtml(html):
+    """
+    extract 4 different dictionaries from the html page.
+    -- ytInitialPlayerResponse
+    -- ytcfg.set()
+    -- ytplayer.web_player_context_config
+    -- ytInitialData 
+    """
+
     result = {}
     for m in re.finditer(r'ytcfg\.set\(([^{}]*?),([^{}]*?)\)', html):
         #print("yt1", m.groups())

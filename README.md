@@ -287,7 +287,7 @@ I added a tool: `ytdump.py`, which i use to investigate youtube json dictionarie
  * DONE youtube search results.
  * generalize the way continuations are used.
  * add upload date and duration in the video lists.
- * automatically update the innertubeapikey and clientversion
+ * DONE automatically update the innertubeapikey and clientversion
  * get original filename from studio.youtube.com/video/<videoid>/edit
  * playlist editor / organiser
  * community post listing
