@@ -606,8 +606,10 @@ class CommentReader:
             p = p["commentRepliesContinuation"]
 
         cmtlist = []
-        for c in p["contents"]:
-            cmtlist.append(self.getcomment(c))
+        contents = p.get("contents")
+        if contents:
+            for c in contents:
+                cmtlist.append(self.getcomment(c))
 
         # header.commentsHeaderRenderer -> commentsCount  at same level as 'contents'
 

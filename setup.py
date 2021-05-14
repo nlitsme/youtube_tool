@@ -1,7 +1,7 @@
 from setuptools import setup
 setup(
     name = "youtube_tool",
-    version = "1.0.10",
+    version = "1.0.11",
     entry_points = {
         'console_scripts': ['yttool=yttool:main'],
     },
