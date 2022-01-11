@@ -242,19 +242,19 @@ class Youtube:
         postdata = json.dumps(postdata)
         return self.httpreq(url + "?" + urllib.parse.urlencode(query), postdata.encode('ascii'))
 
-    def browse(self, contclick):
+    def browse(self, cont):
         """
         Returns videos for the specified continuation parameter.
         """
-        cont, click = contclick
-        url = "https://www.youtube.com/browse_ajax"
-        query = {
-            "ctoken": cont,
-            "continuation": cont,
-            "itct": click,
+        cmd = getitem(cont, "continuationEndpoint")
+        url = getitem(cmd, "commandMetadata", "webCommandMetadata", "apiUrl")
+        postreq = {
+            "context":{"client":{"clientName":"WEB","clientVersion":self.clientversion}},
+            "continuation": getitem(cmd, "continuationCommand", "token"),
         }
 
-        return self.httpreq(url + "?" + urllib.parse.urlencode(query))
+        return self.httpreq("https://www.youtube.com" + url + "?" + urllib.parse.urlencode({"key":self.innertubeapikey}), json.dumps(postreq).encode('utf-8') )
+
 
     def getpageinfo(self, yturl):
         """
@@ -887,10 +887,9 @@ class PlaylistReader:
                 title = getitem(entry, entry_tag, "title")
                 if vid and title:
                     print("%s - %s" % (vid, extracttext(title)))
-                c = getitem(entry, "continuationItemRenderer", "continuationEndpoint", "continuationCommand", "token")
+                c = getitem(entry, "continuationItemRenderer")
                 if c:
-                    cl = getitem(entry, "continuationItemRenderer", "continuationEndpoint", "clickTrackingParams")
-                    cont = c, cl
+                    cont = c
 
             if not cont:
                 cont = getcontinuation(playlist)
@@ -913,7 +912,10 @@ class PlaylistReader:
                 playlist = getitem(js, "initdata", "continuationContents", "playlistVideoListContinuation")
                 item_tag = "contents"
                 if not playlist:
-                    playlist = getitem(js, "initdata", "onResponseReceivedActions", 0, "appendContinuationItemsAction", )
+                    playlist = getitem(js, "initdata", "onResponseReceivedActions", 0, "appendContinuationItemsAction")
+                    item_tag = "continuationItems"
+                if not playlist:
+                    playlist = getitem(js, "onResponseReceivedActions", 0, "appendContinuationItemsAction")
                     item_tag = "continuationItems"
                 if playlist:
                     for entry in getitem(playlist, item_tag):
@@ -921,10 +923,9 @@ class PlaylistReader:
                         title = getitem(entry, "playlistVideoRenderer", "title")
                         if vid and title:
                             print("%s - %s" % (vid, extracttext(title)))
-                        c = getitem(entry, "continuationItemRenderer", "continuationEndpoint", "continuationCommand", "token")
+                        c = getitem(entry, "continuationItemRenderer")
                         if c:
-                            cl = getitem(entry, "continuationItemRenderer", "continuationEndpoint", "clickTrackingParams")
-                            cont = c, cl
+                            cont = c
 
                 if not playlist:
                     break
