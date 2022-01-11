@@ -100,10 +100,13 @@ def extracttext(entry):
 
 
 def getcontinuation(p):
+    cont = getitem(p, "contents", 0, "continuationItemRenderer")
+    if cont:
+        return cont
+
     p = getitem(p, "continuations", 0, "nextContinuationData")
-    if not p:
-        return
-    return p["continuation"], p["clickTrackingParams"]
+    if p:
+        return p["continuation"], p["clickTrackingParams"]
 
 
 class Youtube:
@@ -167,26 +170,18 @@ class Youtube:
 
         return page
 
-    def getcomments(self, contclick, xsrf, replies=False):
+    def getcomments(self, cont, xsrf, replies=False):
         """
         Returns comments for the specified continuation parameter.
         """
-        cont, click = contclick
-        url = "https://www.youtube.com/comment_service_ajax"
-        query = {
-            "pbj": 1,
-            "ctoken": cont,
-            "continuation": cont,   # -- it turns out we don't need this 2nd copy of the token.
-            "itct": click,
-            "type": "next",
+        cmd = getitem(cont, "continuationEndpoint") or getitem(cont, "button", "buttonRenderer", "command")
+        url = getitem(cmd, "commandMetadata", "webCommandMetadata", "apiUrl")
+        postreq = {
+            "context":{"client":{"clientName":"WEB","clientVersion":self.clientversion}},
+            "continuation": getitem(cmd, "continuationCommand", "token"),
         }
-        if replies:
-            query["action_get_comment_replies"] = 1
-        else:
-            query["action_get_comments"] = 1
 
-        postdata = urllib.parse.urlencode(xsrf)
-        return self.httpreq(url + "?" + urllib.parse.urlencode(query), postdata.encode('ascii') )
+        return self.httpreq("https://www.youtube.com" + url + "?" + urllib.parse.urlencode({"key":self.innertubeapikey}), json.dumps(postreq).encode('utf-8') )
 
     def getchat(self, cont, live=False):
         """
@@ -334,6 +329,13 @@ class Youtube:
 
         return json.loads(cfgtext)
 
+def strunescape(txt):
+    txt = re.sub(r'\\x(\w\w)', lambda m:chr(int(m.group(1), 16)), txt)
+    txt = re.sub(r'\\n', "\n", txt)
+    txt = re.sub(r'\\r', "\r", txt)
+    txt = re.sub(r'\\t', "\t", txt)
+    txt = re.sub(r'\\/', "/", txt)
+    return txt
 
 def filterhtml(html):
     """
@@ -357,7 +359,7 @@ def filterhtml(html):
 
     if m := re.search(r'<script type="application/ld\+json"[^>]*>(\{.*?\})</script>', html):
         #print("ld", m.group(1))
-        result["ldjson"] = json.loads(m.group(1))
+        result["ldjson"] = json.loads(strunescape(m.group(1)))
 
     if m := re.search(r'ytplayer.web_player_context_config = (\{.*?\});', html):
         #print("cfg", m.group(1))
@@ -520,7 +522,7 @@ class CommentReader:
         self.contclick, self.xsrf = self.getcommentinfo(cfg)
 
     def recursecomments(self, cc=None, level=0):
-        if not cc:
+        if not cc and not level:
             cc = self.contclick
         while cc:
             cmtjson = self.yt.getcomments(cc, self.xsrf, replies=(level>0))
@@ -596,24 +598,30 @@ class CommentReader:
         """
         Extract a list of comments from comment dictionary
         """
-        p = getitem(js, "response", "continuationContents")
-        if not p:
-            print("non contents found in continuation")
+        endpoints = getitem(js, "onResponseReceivedEndpoints")
+        if not endpoints:
             return [], None
-        if "itemSectionContinuation" in p:
-            p = p["itemSectionContinuation"]
-        elif "commentRepliesContinuation" in p:
-            p = p["commentRepliesContinuation"]
 
+        cc = None
         cmtlist = []
-        contents = p.get("contents")
-        if contents:
-            for c in contents:
-                cmtlist.append(self.getcomment(c))
+        for p in endpoints:
+            items = getitem(p, "reloadContinuationItemsCommand", "continuationItems")
+            if not items:
+                items = getitem(p, "appendContinuationItemsAction", "continuationItems")
+                if not items:
+                    continue
+            for p in items:
+                c = getitem(p, "commentThreadRenderer")
+                if c:
+                    cmtlist.append(self.getcomment(c))
+                c = getitem(p, "commentRenderer")
+                if c:
+                    cmtlist.append(self.getcomment(c))
+                c = getitem(p, "continuationItemRenderer")
+                if c:
+                    cc = c
 
-        # header.commentsHeaderRenderer -> commentsCount  at same level as 'contents'
-
-        return cmtlist, getcontinuation(p)
+        return cmtlist, cc
 
 
 class SearchReader:
