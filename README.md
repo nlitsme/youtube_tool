@@ -295,6 +295,8 @@ I added a tool: `ytdump.py`, which i use to investigate youtube json dictionarie
  * list video markers, like in https://www.youtube.com/watch?v=i2KdE-cYMJk
  * list other videos from the same channel.
  * add time, likes to comments
+ * repair the `--replay` option.
+
 
 # AUTHOR
 
